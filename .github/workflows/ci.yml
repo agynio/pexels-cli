@@ -58,30 +58,30 @@ jobs:
           TMPDIR=$(mktemp -d)
           DEST="$TMPDIR/cat.jpg"
 
-          # Direct JSON redirection to file to avoid echo subshell issues
-          pexels photos download "$ID" "$DEST" > download.json
+          # Write CLI output to a YAML file (CLI outputs YAML)
+          pexels photos download "$ID" "$DEST" > download.yaml
 
-          echo '--- download.json (first 200 chars) ---'
-          head -c 200 download.json || true
+          echo '--- download.yaml (first 200 chars) ---'
+          head -c 200 download.yaml || true
           echo
-          echo '--- download.json (hexdump of first 64 bytes) ---'
-          od -An -t x1 -N 64 download.json || true
+          echo '--- download.yaml (hexdump of first 64 bytes) ---'
+          od -An -t x1 -N 64 download.yaml || true
 
           ABS=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$DEST")
           export ABS
           echo "ABS=$ABS"
 
           echo 'Check: has("data") and has("meta")'
-          yq -e 'has("data") and has("meta")' download.json
+          yq -p=yaml -e 'has("data") and has("meta")' download.yaml
 
           echo 'Check: .data.path is string'
-          yq -e '.data.path | type == "!!str"' download.json
+          yq -p=yaml -e '.data.path | type == "!!str"' download.yaml
 
           echo 'Check: .data.bytes is int and > 0'
-          yq -e '.data.bytes | type == "!!int" and . > 0' download.json
+          yq -p=yaml -e '.data.bytes | type == "!!int" and . > 0' download.yaml
 
           echo 'Check: .data.path equals absolute path'
-          yq -e '.data.path == env(ABS)' download.json
+          yq -p=yaml -e '.data.path == env(ABS)' download.yaml
 
           echo 'Check: file exists and is non-empty'
           [ -f "$ABS" ]
