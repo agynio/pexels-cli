@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    env:
+      PEXELS_TOKEN: ${{ secrets.PEXELS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sanity
+        run: echo "Workflow started on ${{ github.event_name }} for ${{ github.ref }}"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Lint (fmt)
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Test
+        run: cargo test --workspace --all-features -- --nocapture
+      - name: Build release
+        run: cargo build --release --workspace
+      - name: E2E (mock server via tests)
+        run: cargo test -p pexels --test integration_mock -- --nocapture
+      - name: Live smoke - auth status
+        if: ${{ env.PEXELS_TOKEN != '' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/main') }}
+        run: ./target/release/pexels auth status --timeout 20 --max-retries 3
+      - name: Live smoke - photos curated
+        if: ${{ env.PEXELS_TOKEN != '' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/main') }}
+        run: ./target/release/pexels photos curated --per-page 1 --fields photographer,alt --timeout 20 --max-retries 3
+      - name: Live smoke - videos popular
+        if: ${{ env.PEXELS_TOKEN != '' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/main') }}
+        run: ./target/release/pexels videos popular --per-page 1 --fields duration --timeout 20 --max-retries 3
+      - name: Live smoke - collections featured
+        if: ${{ env.PEXELS_TOKEN != '' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/main') }}
+        run: ./target/release/pexels collections featured --per-page 1 --fields title --timeout 20 --max-retries 3
