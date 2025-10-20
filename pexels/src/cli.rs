@@ -1,7 +1,7 @@
 use crate::api::PexelsClient;
 use crate::config::{Config, TokenSource};
 use crate::output::emit_raw_bytes;
-use crate::output::{emit_data, OutputFormat};
+use crate::output::{emit_data, wrap_ok, OutputFormat};
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::Value as JsonValue;
@@ -13,13 +13,11 @@ use serde_json::Value as JsonValue;
     about = "Pexels CLI",
     disable_help_subcommand = true,
     after_help = r#"Examples:
-  pexels photos search 'cats' --per-page 5
-  pexels photos url 12345
-  pexels photos download 12345 out.jpg
-  pexels videos popular --json --fields @urls
-  pexels collections list --all --limit 50
-  PEXELS_TOKEN=... pexels quota view
-  pexels --host http://localhost:8080 util ping"#
+  pexels auth status
+  pexels photos search -q cats
+  pexels photos curated
+  pexels videos popular
+  pexels collections featured"#
 )]
 #[command(arg_required_else_help = true)]
 pub struct Cli {
@@ -143,6 +141,7 @@ pub struct PhotosCmd {
 #[derive(Subcommand, Debug)]
 pub enum PhotosSub {
     Search {
+        #[arg(short = 'q', long = "query")]
         query: String,
     },
     Curated,
@@ -274,36 +273,59 @@ async fn run_auth(cmd: &AuthCmd, mut cfg: Config) -> Result<()> {
             cfg.token = Some(token);
             cfg.token_source = Some(TokenSource::Config);
             cfg.save()?;
-            emit_data(
-                &OutputFormat::Yaml,
-                &serde_json::json!({
-                    "status": "ok",
-                    "message": "token saved"
-                }),
-            )
+            let payload = serde_json::json!({
+                "status": "ok",
+                "message": "token saved"
+            });
+            let out = wrap_ok(
+                &payload,
+                Some(serde_json::json!({
+                    "next_page": null,
+                    "prev_page": null
+                })),
+            );
+            emit_data(&OutputFormat::Yaml, &out)
         }
         AuthSub::Status => {
             let (src, present) = cfg.token_source_with_presence();
-            emit_data(
-                &OutputFormat::Yaml,
-                &serde_json::json!({
-                    "source": src,
-                    "present": present
-                }),
-            )
+            let payload = serde_json::json!({
+                "source": src,
+                "present": present
+            });
+            let out = wrap_ok(
+                &payload,
+                Some(serde_json::json!({
+                    "next_page": null,
+                    "prev_page": null
+                })),
+            );
+            emit_data(&OutputFormat::Yaml, &out)
         }
         AuthSub::TokenSource => {
             let (src, _present) = cfg.token_source_with_presence();
-            emit_data(&OutputFormat::Yaml, &serde_json::json!({"source": src}))
+            let payload = serde_json::json!({"source": src});
+            let out = wrap_ok(
+                &payload,
+                Some(serde_json::json!({
+                    "next_page": null,
+                    "prev_page": null
+                })),
+            );
+            emit_data(&OutputFormat::Yaml, &out)
         }
         AuthSub::Logout => {
             cfg.token = None;
             cfg.token_source = Some(TokenSource::None);
             cfg.save()?;
-            emit_data(
-                &OutputFormat::Yaml,
-                &serde_json::json!({"status":"logged out"}),
-            )
+            let payload = serde_json::json!({"status":"logged out"});
+            let out = wrap_ok(
+                &payload,
+                Some(serde_json::json!({
+                    "next_page": null,
+                    "prev_page": null
+                })),
+            );
+            emit_data(&OutputFormat::Yaml, &out)
         }
     }
 }
@@ -316,7 +338,15 @@ async fn run_config(cmd: &ConfigCmd, mut cfg: Config) -> Result<()> {
                 _ => anyhow::bail!("unsupported key"),
             }
             cfg.save()?;
-            emit_data(&OutputFormat::Yaml, &serde_json::json!({"status":"ok"}))
+            let payload = serde_json::json!({"status":"ok"});
+            let out = wrap_ok(
+                &payload,
+                Some(serde_json::json!({
+                    "next_page": null,
+                    "prev_page": null
+                })),
+            );
+            emit_data(&OutputFormat::Yaml, &out)
         }
         ConfigSub::Get { key } => {
             let v = match key.as_str() {
@@ -443,11 +473,11 @@ async fn run_util(cmd: &UtilCmd, client: PexelsClient, cli: &Cli) -> Result<()> 
     match &cmd.sub {
         UtilSub::Inspect => {
             let data = client.util_inspect().await?;
-            emit_data(&fmt_from_cli(cli), &data)
+            emit_wrapped(&fmt_from_cli(cli), &data)
         }
         UtilSub::Ping => {
             client.util_ping().await?;
-            emit_data(&fmt_from_cli(cli), &serde_json::json!({"ok":true}))
+            emit_wrapped(&fmt_from_cli(cli), &serde_json::json!({"ok":true}))
         }
     }
 }
@@ -482,62 +512,86 @@ fn emit_enveloped(cli: &Cli, data: JsonValue, defaults: &DefaultFields) -> Resul
     };
 
     if matches!(fmt, OutputFormat::Raw) {
-        // Emit exact bytes of JSON body if available
         let s = serde_json::to_string(&data)?;
-        emit_raw_bytes(s.as_bytes())
-    } else {
-        // Build envelope { data, meta }
-        let mut meta = serde_json::Map::new();
-        let mut data_out: JsonValue = JsonValue::Null;
-        if let Some(obj) = data.as_object() {
-            // Known item arrays
-            let item_keys = ["photos", "videos", "collections", "media"];
-            let mut selected_key: Option<&str> = None;
-            for k in item_keys.iter() {
-                if obj.get(*k).map(|v| v.is_array()).unwrap_or(false) {
-                    selected_key = Some(k);
-                    break;
-                }
-            }
-            if let Some(key) = selected_key {
-                // data = projected items array
-                if let Some(items) = obj.get(key).and_then(|v| v.as_array()) {
-                    let proj_items: Vec<JsonValue> = items
-                        .iter()
-                        .map(|it| crate::proj::project(it, &fields))
-                        .collect();
-                    data_out = JsonValue::Array(proj_items);
-                }
-                // meta = rest of fields
-                for (k, v) in obj.iter() {
-                    if k != key {
-                        meta.insert(k.clone(), v.clone());
-                    }
-                }
-            } else {
-                // single resource
-                let proj = crate::proj::project(&data, &fields);
-                // ensure not empty
-                if proj.is_object() && proj.as_object().map(|m| m.is_empty()).unwrap_or(false) {
-                    data_out = data.clone();
-                } else {
-                    data_out = proj;
-                }
-                // meta empty
-            }
-        } else {
-            // primitive -> place under data directly
-            data_out = data.clone();
-        }
-
-        let out = JsonValue::Object(
-            [
-                ("data".to_string(), data_out),
-                ("meta".to_string(), JsonValue::Object(meta)),
-            ]
-            .into_iter()
-            .collect(),
-        );
-        emit_data(&fmt, &out)
+        return emit_raw_bytes(s.as_bytes());
     }
+
+    // New pipeline: compute meta from full response, extract items, then project items and wrap.
+    use serde_json::Value as V;
+    let (data_val, meta) = shape_output(&data);
+    let out = match (&data, &data_val) {
+        (V::Object(_obj), V::Array(items)) => {
+            let projected_items = crate::proj::project_items_with_fallback(items, &fields);
+            wrap_ok(&V::Array(projected_items), Some(meta))
+        }
+        _ => {
+            // Single-resource path: project object as a whole with fallback to avoid empty {}
+            let projected = if let V::Object(_) = &data {
+                crate::proj::project_item_with_fallback(&data, &fields)
+            } else {
+                crate::proj::project(&data, &fields)
+            };
+            wrap_ok(&projected, Some(meta))
+        }
+    };
+    emit_data(&fmt, &out)
+}
+
+// Convert API response into the new output shape
+// - data: items array for list endpoints, or object for single-resource
+// - meta: includes total_results?, next_page?, prev_page?, request_id? (best effort)
+// - remove page/per_page from output
+pub fn shape_output(input: &JsonValue) -> (JsonValue, JsonValue) {
+    use serde_json::{json, Value};
+    let mut meta = serde_json::Map::new();
+    // Move known meta keys if present
+    if let Some(n) = input.get("total_results").and_then(|v| v.as_u64()) {
+        meta.insert("total_results".into(), json!(n));
+    }
+    // next/prev can be URLs; convert to ints
+    let next_page_num = input.get("next_page").and_then(|v| {
+        v.as_u64()
+            .map(|u| u as u32)
+            .or_else(|| v.as_str().and_then(crate::output::parse_page_number))
+    });
+    let prev_page_num = input.get("prev_page").and_then(|v| {
+        v.as_u64()
+            .map(|u| u as u32)
+            .or_else(|| v.as_str().and_then(crate::output::parse_page_number))
+    });
+    meta.insert(
+        "next_page".into(),
+        match next_page_num {
+            Some(p) => json!(p),
+            None => Value::Null,
+        },
+    );
+    meta.insert(
+        "prev_page".into(),
+        match prev_page_num {
+            Some(p) => json!(p),
+            None => Value::Null,
+        },
+    );
+    // Data extraction: prefer items arrays
+    if let Some(obj) = input.as_object() {
+        for key in ["photos", "videos", "collections", "media"] {
+            if let Some(Value::Array(items)) = obj.get(key) {
+                let data = Value::Array(items.clone());
+                return (data, Value::Object(meta));
+            }
+        }
+    }
+    (input.clone(), Value::Object(meta))
+}
+
+fn emit_wrapped(fmt: &OutputFormat, payload: &JsonValue) -> Result<()> {
+    let out = wrap_ok(
+        payload,
+        Some(serde_json::json!({
+            "next_page": null,
+            "prev_page": null,
+        })),
+    );
+    emit_data(fmt, &out)
 }

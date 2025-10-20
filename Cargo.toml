@@ -33,8 +33,7 @@ version = "2.0"
 [workspace.dependencies.predicates]
 version = "3.1"
 
-[workspace.dependencies.wiremock]
-version = "0.6"
+# wiremock removed; live tests only
 
 [workspace.metadata.package]
 description = "Pexels CLI for agents and humans"

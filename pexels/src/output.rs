@@ -50,3 +50,41 @@ pub fn emit_raw_bytes(bytes: &[u8]) -> Result<()> {
     out.flush()?;
     Ok(())
 }
+
+// Wrap successful payload into the standard envelope
+// { data: <payload>, meta: { ... } }
+pub fn wrap_ok(data: &JsonValue, meta: Option<JsonValue>) -> JsonValue {
+    let mut meta_obj = match meta {
+        Some(JsonValue::Object(m)) => JsonValue::Object(m),
+        Some(v) => v,
+        None => JsonValue::Object(serde_json::Map::new()),
+    };
+    let mut root = serde_json::Map::new();
+    root.insert("data".into(), data.clone());
+    if !meta_obj.is_object() {
+        meta_obj = JsonValue::Object(serde_json::Map::new());
+    }
+    root.insert("meta".into(), meta_obj);
+    JsonValue::Object(root)
+}
+
+// Extract the `page` query param from a URL string.
+pub fn parse_page_number(url: &str) -> Option<u32> {
+    // Accept absolute or relative URLs
+    let u = if url.starts_with("http://") || url.starts_with("https://") {
+        url::Url::parse(url).ok()?
+    } else {
+        let base = url::Url::parse("https://example.local/").ok()?;
+        base.join(url).ok()?
+    };
+    let mut page: Option<u32> = None;
+    for (k, v) in u.query_pairs() {
+        if k == "page" {
+            if let Ok(p) = v.parse::<u32>() {
+                page = Some(p);
+                break;
+            }
+        }
+    }
+    page
+}

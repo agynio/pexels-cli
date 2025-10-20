@@ -41,6 +41,60 @@ pub fn project(input: &Value, fields: &[String]) -> Value {
 
 // project_response removed; envelope now constructed in CLI.
 
+// Ensure projected item is not an empty object; if empty, fallback to minimal descriptive fields
+fn ensure_non_empty_item(projected: &Value, original: &Value) -> Value {
+    if matches!(projected, Value::Object(map) if map.is_empty()) {
+        minimal_item(original)
+    } else {
+        projected.clone()
+    }
+}
+
+fn minimal_item(original: &Value) -> Value {
+    match original {
+        Value::Object(map) => {
+            let mut o = Map::new();
+            for k in [
+                "id",
+                "url",
+                "photographer",
+                "alt",
+                "title",
+                "description",
+                "duration",
+            ] {
+                if let Some(v) = map.get(k) {
+                    o.insert(k.to_string(), v.clone());
+                }
+            }
+            if o.is_empty() {
+                // Fallback: include first scalar field if any
+                for (k, v) in map.iter() {
+                    if matches!(v, Value::String(_) | Value::Number(_) | Value::Bool(_)) {
+                        o.insert(k.clone(), v.clone());
+                        break;
+                    }
+                }
+            }
+            Value::Object(o)
+        }
+        _ => original.clone(),
+    }
+}
+
+// Public helpers for projecting items with fallback
+pub fn project_item_with_fallback(item: &Value, fields: &[String]) -> Value {
+    let p = project(item, fields);
+    ensure_non_empty_item(&p, item)
+}
+
+pub fn project_items_with_fallback(items: &[Value], fields: &[String]) -> Vec<Value> {
+    items
+        .iter()
+        .map(|it| project_item_with_fallback(it, fields))
+        .collect()
+}
+
 fn merge(dst: &mut Value, src: &Value) {
     match (dst.clone(), src) {
         (_, Value::Null) => {}
