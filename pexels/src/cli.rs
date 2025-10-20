@@ -525,7 +525,12 @@ fn emit_enveloped(cli: &Cli, data: JsonValue, defaults: &DefaultFields) -> Resul
             wrap_ok(&V::Array(projected_items), Some(meta))
         }
         _ => {
-            let projected = crate::proj::project(&data, &fields);
+            // Single-resource path: project object as a whole with fallback to avoid empty {}
+            let projected = if let V::Object(_) = &data {
+                crate::proj::project_item_with_fallback(&data, &fields)
+            } else {
+                crate::proj::project(&data, &fields)
+            };
             wrap_ok(&projected, Some(meta))
         }
     };
