@@ -1,5 +1,5 @@
-use pexels::output::{parse_page_number, wrap_ok};
 use pexels::cli::shape_output;
+use pexels::output::{parse_page_number, wrap_ok};
 use serde_json::json;
 
 #[test]
