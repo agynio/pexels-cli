@@ -1,4 +1,4 @@
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 
 // Simple projection supporting:
 // - dot paths: a.b.c
@@ -63,7 +63,7 @@ fn merge(dst: &mut Value, src: &Value) {
     match (dst.clone(), src) {
         (_, Value::Null) => {}
         (Value::Null, _) => *dst = src.clone(),
-        (Value::Object(mut a), Value::Object(b)) => {
+        (Value::Object(a), Value::Object(b)) => {
             let mut merged = a;
             for (k, v) in b {
                 merged.insert(k.clone(), v.clone());
@@ -130,6 +130,7 @@ fn select_inner(input: &Value, parts: &[&str]) -> Value {
     }
 }
 
+#[allow(dead_code)]
 fn insert_path(dst: &mut Map<String, Value>, path: &str, value: Value) {
     // Safe iterative insertion without unsafe blocks
     let parts = path.split('.').collect::<Vec<_>>();
@@ -220,6 +221,7 @@ fn extract_by_keys(input: &Value, keys: &[&str]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_project_dot() {
@@ -237,7 +239,8 @@ mod tests {
 
     #[test]
     fn test_project_response_array_items() {
-        let v = json!({"page":1, "photos":[{"id":1,"width":100,"height":200,"src":{"original":"u"}}]});
+        let v =
+            json!({"page":1, "photos":[{"id":1,"width":100,"height":200,"src":{"original":"u"}}]});
         let out = project_response(&v, &["width".into(), "height".into()]);
         assert_eq!(out["photos"][0]["width"], 100);
         assert!(out["photos"][0].get("src").is_none());

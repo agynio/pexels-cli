@@ -1,11 +1,11 @@
 use crate::api::PexelsClient;
 use crate::config::{Config, TokenSource};
-use crate::output::{emit_data, emit_error, OutputFormat};
 use crate::output::emit_raw_bytes;
+use crate::output::{emit_data, OutputFormat};
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::Value as JsonValue;
-use std::time::Duration;
+// std::time::Duration not used here
 
 #[derive(Parser, Debug)]
 #[command(
@@ -213,24 +213,31 @@ fn fmt_from_cli(cli: &Cli) -> OutputFormat {
 async fn run_auth(cmd: &AuthCmd, mut cfg: Config) -> Result<()> {
     match &cmd.sub {
         AuthSub::Login { token } => {
-            let token = token.clone()
+            let token = token
+                .clone()
                 .or_else(|| std::env::var("PEXELS_TOKEN").ok())
                 .or_else(|| std::env::var("PEXELS_API_KEY").ok())
                 .context("token not provided; use --token or env PEXELS_TOKEN")?;
             cfg.token = Some(token);
             cfg.token_source = Some(TokenSource::Config);
             cfg.save()?;
-            emit_data(&OutputFormat::Yaml, &serde_json::json!({
-                "status": "ok",
-                "message": "token saved"
-            }))
+            emit_data(
+                &OutputFormat::Yaml,
+                &serde_json::json!({
+                    "status": "ok",
+                    "message": "token saved"
+                }),
+            )
         }
         AuthSub::Status => {
             let (src, present) = cfg.token_source_with_presence();
-            emit_data(&OutputFormat::Yaml, &serde_json::json!({
-                "source": src,
-                "present": present
-            }))
+            emit_data(
+                &OutputFormat::Yaml,
+                &serde_json::json!({
+                    "source": src,
+                    "present": present
+                }),
+            )
         }
         AuthSub::TokenSource => {
             let (src, _present) = cfg.token_source_with_presence();
@@ -240,7 +247,10 @@ async fn run_auth(cmd: &AuthCmd, mut cfg: Config) -> Result<()> {
             cfg.token = None;
             cfg.token_source = Some(TokenSource::None);
             cfg.save()?;
-            emit_data(&OutputFormat::Yaml, &serde_json::json!({"status":"logged out"}))
+            emit_data(
+                &OutputFormat::Yaml,
+                &serde_json::json!({"status":"logged out"}),
+            )
         }
     }
 }
@@ -262,16 +272,20 @@ async fn run_config(cmd: &ConfigCmd, mut cfg: Config) -> Result<()> {
             };
             emit_data(&OutputFormat::Raw, &JsonValue::String(v))
         }
-        ConfigSub::Path => {
-            emit_data(&OutputFormat::Raw, &JsonValue::String(cfg.path().display().to_string()))
-        }
+        ConfigSub::Path => emit_data(
+            &OutputFormat::Raw,
+            &JsonValue::String(cfg.path().display().to_string()),
+        ),
     }
 }
 
 async fn run_quota(_cmd: &QuotaCmd, client: PexelsClient, cli: &Cli) -> Result<()> {
     // Reachability check: HEAD curated
     let reachable = client.util_ping().await.is_ok();
-    let mut data = client.quota_view().await.unwrap_or_else(|_| serde_json::json!({}));
+    let mut data = client
+        .quota_view()
+        .await
+        .unwrap_or_else(|_| serde_json::json!({}));
     if let Some(obj) = data.as_object_mut() {
         obj.insert("reachable".into(), serde_json::json!(reachable));
     }
@@ -286,7 +300,10 @@ async fn run_photos(cmd: &PhotosCmd, client: PexelsClient, cli: &Cli) -> Result<
         }
         PhotosSub::Curated => {
             if cli.raw {
-                let url = client.base_photos().join("curated").map_err(|e| anyhow::anyhow!(e))?;
+                let url = client
+                    .base_photos()
+                    .join("curated")
+                    .map_err(|e| anyhow::anyhow!(e))?;
                 let bytes = client.req_bytes(url, client.pagination_qp(cli)).await?;
                 emit_raw_bytes(&bytes)
             } else {
@@ -353,11 +370,9 @@ fn emit_projected(cli: &Cli, data: JsonValue, defaults: &DefaultFields) -> Resul
                 "avg_color".into(),
             ],
             DefaultFields::Videos => vec!["duration".into(), "width".into(), "height".into()],
-            DefaultFields::Collections => vec![
-                "title".into(),
-                "description".into(),
-                "media_count".into(),
-            ],
+            DefaultFields::Collections => {
+                vec!["title".into(), "description".into(), "media_count".into()]
+            }
         }
     } else {
         cli.fields.clone()

@@ -3,7 +3,7 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -22,19 +22,14 @@ pub struct Config {
     pub retry_after: Option<u64>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TokenSource {
     Env,
     Config,
     Cli,
+    #[default]
     None,
-}
-
-impl Default for TokenSource {
-    fn default() -> Self {
-        TokenSource::None
-    }
 }
 
 impl Config {
@@ -47,7 +42,11 @@ impl Config {
             cfg.max_retries = 3;
             Ok(cfg)
         } else {
-            Ok(Config { timeout_secs: 15, max_retries: 3, ..Default::default() })
+            Ok(Config {
+                timeout_secs: 15,
+                max_retries: 3,
+                ..Default::default()
+            })
         }
     }
 

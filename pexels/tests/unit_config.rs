@@ -1,5 +1,5 @@
-use pexels::proj::{project, project_response};
 use pexels::config::Config;
+use pexels::proj::{project, project_response};
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -25,8 +25,10 @@ fn test_config_path_vendorless() {
 
 #[test]
 fn test_token_save_permissions() {
-    let mut cfg = Config::default();
-    cfg.token = Some("t".into());
+    let cfg = Config {
+        token: Some("t".into()),
+        ..Default::default()
+    };
     cfg.save().unwrap();
     let meta = fs::metadata(cfg.path()).unwrap();
     #[cfg(unix)]

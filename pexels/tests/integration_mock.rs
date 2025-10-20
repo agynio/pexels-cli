@@ -1,7 +1,7 @@
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use std::process::Command;
-use wiremock::matchers::{method, path, path_regex, query_param};
+use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
@@ -20,8 +20,11 @@ async fn photos_search_defaults_yaml_and_projection() {
         .await;
 
     let mut cmd = Command::cargo_bin("pexels").unwrap();
-    cmd.arg("--host").arg(server.uri())
-        .arg("photos").arg("search").arg("cat");
+    cmd.arg("--host")
+        .arg(server.uri())
+        .arg("photos")
+        .arg("search")
+        .arg("cat");
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("photographer:"))
@@ -43,15 +46,28 @@ async fn pagination_all_limit_respected() {
         "per_page":2,
         "photos":[{"id":3},{"id":4}]
     });
-    Mock::given(method("GET")).and(path("/v1/search")).and(query_param("page", "2"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(page2)).mount(&server).await;
-    Mock::given(method("GET")).and(path("/v1/search")).and(query_param("query", "dog"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(page1)).mount(&server).await;
+    Mock::given(method("GET"))
+        .and(path("/v1/search"))
+        .and(query_param("page", "2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(page2))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/search"))
+        .and(query_param("query", "dog"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(page1))
+        .mount(&server)
+        .await;
 
     let mut cmd = Command::cargo_bin("pexels").unwrap();
-    cmd.arg("--host").arg(server.uri())
-        .arg("--all").arg("--limit").arg("3")
-        .arg("photos").arg("search").arg("dog")
+    cmd.arg("--host")
+        .arg(server.uri())
+        .arg("--all")
+        .arg("--limit")
+        .arg("3")
+        .arg("photos")
+        .arg("search")
+        .arg("dog")
         .arg("--json");
     let out = cmd.assert().success().get_output().stdout.clone();
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
@@ -62,13 +78,17 @@ async fn pagination_all_limit_respected() {
 async fn raw_output_streams_bytes() {
     let server = MockServer::start().await;
     let body = "RAW-BYTES";
-    Mock::given(method("GET")).and(path("/v1/curated"))
+    Mock::given(method("GET"))
+        .and(path("/v1/curated"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/plain"))
-        .mount(&server).await;
+        .mount(&server)
+        .await;
 
     let mut cmd = Command::cargo_bin("pexels").unwrap();
-    cmd.arg("--host").arg(server.uri())
+    cmd.arg("--host")
+        .arg(server.uri())
         .arg("--raw")
-        .arg("photos").arg("curated");
+        .arg("photos")
+        .arg("curated");
     cmd.assert().success().stdout(predicate::eq(body));
 }

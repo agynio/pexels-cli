@@ -1,13 +1,11 @@
 use crate::config::Config;
-use crate::output::OutputFormat;
 use crate::util::backoff_delay;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, AUTHORIZATION, USER_AGENT};
 use reqwest::{Client, Response, StatusCode, Url};
 use serde_json::Value as JsonValue;
-use tokio::io::AsyncReadExt;
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::warn;
 
 #[derive(Clone)]
 pub struct PexelsClient {
@@ -21,12 +19,18 @@ impl PexelsClient {
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
 
         if let Some(locale) = &cfg.locale {
-            headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_str(locale).unwrap_or(HeaderValue::from_static("en")));
+            headers.insert(
+                ACCEPT_LANGUAGE,
+                HeaderValue::from_str(locale).unwrap_or(HeaderValue::from_static("en")),
+            );
         }
 
         if let Some(token) = &cfg.token {
             // Pexels uses token directly, not Bearer
-            headers.insert(AUTHORIZATION, HeaderValue::from_str(token).unwrap_or(HeaderValue::from_static("")));
+            headers.insert(
+                AUTHORIZATION,
+                HeaderValue::from_str(token).unwrap_or(HeaderValue::from_static("")),
+            );
         }
 
         let ua = format!(
@@ -71,14 +75,14 @@ impl PexelsClient {
                     if status.is_success() {
                         return parse_json(resp).await;
                     }
-                    if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
-                        if attempt < self.cfg.max_retries {
-                            attempt += 1;
-                            let delay = retry_after_delay(&resp, attempt, self.cfg.retry_after);
-                            warn!("http {} retrying in {:?}", status, delay);
-                            tokio::time::sleep(delay).await;
-                            continue;
-                        }
+                    if (status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error())
+                        && attempt < self.cfg.max_retries
+                    {
+                        attempt += 1;
+                        let delay = retry_after_delay(&resp, attempt, self.cfg.retry_after);
+                        warn!("http {} retrying in {:?}", status, delay);
+                        tokio::time::sleep(delay).await;
+                        continue;
                     }
                     return Err(http_error(resp).await);
                 }
@@ -86,7 +90,11 @@ impl PexelsClient {
                     if attempt < self.cfg.max_retries {
                         attempt += 1;
                         let delay = backoff_delay(attempt);
-                        warn!("http error: {} retrying in {:?}", redact(&e.to_string()), delay);
+                        warn!(
+                            "http error: {} retrying in {:?}",
+                            redact(&e.to_string()),
+                            delay
+                        );
                         tokio::time::sleep(delay).await;
                         continue;
                     }
@@ -106,14 +114,14 @@ impl PexelsClient {
                     if status.is_success() {
                         return Ok(resp.bytes().await?.to_vec());
                     }
-                    if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
-                        if attempt < self.cfg.max_retries {
-                            attempt += 1;
-                            let delay = retry_after_delay(&resp, attempt, self.cfg.retry_after);
-                            warn!("http {} retrying in {:?}", status, delay);
-                            tokio::time::sleep(delay).await;
-                            continue;
-                        }
+                    if (status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error())
+                        && attempt < self.cfg.max_retries
+                    {
+                        attempt += 1;
+                        let delay = retry_after_delay(&resp, attempt, self.cfg.retry_after);
+                        warn!("http {} retrying in {:?}", status, delay);
+                        tokio::time::sleep(delay).await;
+                        continue;
                     }
                     return Err(http_error(resp).await);
                 }
@@ -121,7 +129,11 @@ impl PexelsClient {
                     if attempt < self.cfg.max_retries {
                         attempt += 1;
                         let delay = backoff_delay(attempt);
-                        warn!("http error: {} retrying in {:?}", redact(&e.to_string()), delay);
+                        warn!(
+                            "http error: {} retrying in {:?}",
+                            redact(&e.to_string()),
+                            delay
+                        );
                         tokio::time::sleep(delay).await;
                         continue;
                     }
@@ -133,7 +145,10 @@ impl PexelsClient {
 
     pub async fn quota_view(&self) -> Result<JsonValue> {
         // Pexels exposes remaining via headers; for CLI, attempt a ping endpoint and echo headers
-        let url = self.base_photos().join("curated").map_err(|e| anyhow::anyhow!(e))?;
+        let url = self
+            .base_photos()
+            .join("curated")
+            .map_err(|e| anyhow::anyhow!(e))?;
         let resp = self.http.get(url).send().await?;
         if !resp.status().is_success() {
             return Err(http_error(resp).await);
@@ -154,21 +169,29 @@ impl PexelsClient {
     }
 
     pub async fn photos_search(&self, query: &str, cli: &crate::cli::Cli) -> Result<JsonValue> {
-        let url = self.base_photos().join("search").map_err(|e| anyhow::anyhow!(e))?;
+        let url = self
+            .base_photos()
+            .join("search")
+            .map_err(|e| anyhow::anyhow!(e))?;
         let mut qp = self.pagination_qp(cli);
         qp.push(("query".into(), query.into()));
         if cli.all || cli.limit.is_some() || cli.max_pages.is_some() {
-            self.req_paginated(url, qp, cli, &[("photos", "photos")]).await
+            self.req_paginated(url, qp, cli, &[("photos", "photos")])
+                .await
         } else {
             self.req(url, qp).await
         }
     }
 
     pub async fn photos_curated(&self, cli: &crate::cli::Cli) -> Result<JsonValue> {
-        let url = self.base_photos().join("curated").map_err(|e| anyhow::anyhow!(e))?;
+        let url = self
+            .base_photos()
+            .join("curated")
+            .map_err(|e| anyhow::anyhow!(e))?;
         let qp = self.pagination_qp(cli);
         if cli.all || cli.limit.is_some() || cli.max_pages.is_some() {
-            self.req_paginated(url, qp, cli, &[("photos", "photos")]).await
+            self.req_paginated(url, qp, cli, &[("photos", "photos")])
+                .await
         } else {
             self.req(url, qp).await
         }
@@ -183,20 +206,28 @@ impl PexelsClient {
     }
 
     pub async fn videos_search(&self, query: &str, cli: &crate::cli::Cli) -> Result<JsonValue> {
-        let url = self.base_videos().join("search").map_err(|e| anyhow::anyhow!(e))?;
+        let url = self
+            .base_videos()
+            .join("search")
+            .map_err(|e| anyhow::anyhow!(e))?;
         let mut qp = self.pagination_qp(cli);
         qp.push(("query".into(), query.into()));
         if cli.all || cli.limit.is_some() || cli.max_pages.is_some() {
-            self.req_paginated(url, qp, cli, &[("videos", "videos")]).await
+            self.req_paginated(url, qp, cli, &[("videos", "videos")])
+                .await
         } else {
             self.req(url, qp).await
         }
     }
     pub async fn videos_popular(&self, cli: &crate::cli::Cli) -> Result<JsonValue> {
-        let url = self.base_videos().join("popular").map_err(|e| anyhow::anyhow!(e))?;
+        let url = self
+            .base_videos()
+            .join("popular")
+            .map_err(|e| anyhow::anyhow!(e))?;
         let qp = self.pagination_qp(cli);
         if cli.all || cli.limit.is_some() || cli.max_pages.is_some() {
-            self.req_paginated(url, qp, cli, &[("videos", "videos")]).await
+            self.req_paginated(url, qp, cli, &[("videos", "videos")])
+                .await
         } else {
             self.req(url, qp).await
         }
@@ -210,10 +241,14 @@ impl PexelsClient {
     }
 
     pub async fn collections_list(&self, cli: &crate::cli::Cli) -> Result<JsonValue> {
-        let url = self.base_photos().join("collections").map_err(|e| anyhow::anyhow!(e))?;
+        let url = self
+            .base_photos()
+            .join("collections")
+            .map_err(|e| anyhow::anyhow!(e))?;
         let qp = self.pagination_qp(cli);
         if cli.all || cli.limit.is_some() || cli.max_pages.is_some() {
-            self.req_paginated(url, qp, cli, &[("collections", "collections")]).await
+            self.req_paginated(url, qp, cli, &[("collections", "collections")])
+                .await
         } else {
             self.req(url, qp).await
         }
@@ -225,7 +260,8 @@ impl PexelsClient {
             .map_err(|e| anyhow::anyhow!(e))?;
         let qp = self.pagination_qp(cli);
         if cli.all || cli.limit.is_some() || cli.max_pages.is_some() {
-            self.req_paginated(url, qp, cli, &[("collections", "collections")]).await
+            self.req_paginated(url, qp, cli, &[("collections", "collections")])
+                .await
         } else {
             self.req(url, qp).await
         }
@@ -244,7 +280,8 @@ impl PexelsClient {
             .map_err(|e| anyhow::anyhow!(e))?;
         let qp = self.pagination_qp(cli);
         if cli.all || cli.limit.is_some() || cli.max_pages.is_some() {
-            self.req_paginated(url, qp, cli, &[("media", "media")]).await
+            self.req_paginated(url, qp, cli, &[("media", "media")])
+                .await
         } else {
             self.req(url, qp).await
         }
@@ -260,7 +297,10 @@ impl PexelsClient {
     }
     pub async fn util_ping(&self) -> Result<()> {
         // lightweight: HEAD curated
-        let url = self.base_photos().join("curated").map_err(|e| anyhow::anyhow!(e))?;
+        let url = self
+            .base_photos()
+            .join("curated")
+            .map_err(|e| anyhow::anyhow!(e))?;
         let resp = self.http.head(url).send().await?;
         if resp.status().is_success() {
             Ok(())
@@ -348,30 +388,55 @@ impl PexelsClient {
 
 async fn parse_json(resp: Response) -> Result<JsonValue> {
     let bytes = resp.bytes().await?;
-    let v: JsonValue = serde_json::from_slice(&bytes).unwrap_or(JsonValue::String(String::from_utf8_lossy(&bytes).to_string()));
+    let v: JsonValue = serde_json::from_slice(&bytes).unwrap_or(JsonValue::String(
+        String::from_utf8_lossy(&bytes).to_string(),
+    ));
     Ok(v)
 }
 
 async fn http_error(resp: Response) -> anyhow::Error {
     let status = resp.status();
-    let rid = resp.headers().get("x-request-id").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
+    let rid = resp
+        .headers()
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
     let text = resp.text().await.unwrap_or_default();
     let mut err = serde_json::Map::new();
     err.insert("code".into(), JsonValue::Number(status.as_u16().into()));
-    err.insert("reason".into(), JsonValue::String(status.canonical_reason().unwrap_or("error").to_string()));
+    err.insert(
+        "reason".into(),
+        JsonValue::String(status.canonical_reason().unwrap_or("error").to_string()),
+    );
     // attempt to parse Pexels error body to extract type/hint
     if let Ok(v) = serde_json::from_str::<JsonValue>(&text) {
-        if let Some(t) = v.get("type").cloned() { err.insert("type".into(), t); }
-        if let Some(h) = v.get("hint").cloned() { err.insert("hint".into(), h); }
+        if let Some(t) = v.get("type").cloned() {
+            err.insert("type".into(), t);
+        }
+        if let Some(h) = v.get("hint").cloned() {
+            err.insert("hint".into(), h);
+        }
     }
-    if let Some(id) = rid { err.insert("request_id".into(), JsonValue::String(id)); }
-    if !text.is_empty() { err.insert("body".into(), JsonValue::String(text)); }
-    anyhow::anyhow!(serde_yaml::to_string(&JsonValue::Object(err)).unwrap_or_else(|_| format!("http error {}", status)))
+    if let Some(id) = rid {
+        err.insert("request_id".into(), JsonValue::String(id));
+    }
+    if !text.is_empty() {
+        err.insert("body".into(), JsonValue::String(text));
+    }
+    anyhow::anyhow!(serde_yaml::to_string(&JsonValue::Object(err))
+        .unwrap_or_else(|_| format!("http error {}", status)))
 }
 
 fn retry_after_delay(resp: &Response, attempt: u32, override_secs: Option<u64>) -> Duration {
-    if let Some(ov) = override_secs { return Duration::from_secs(ov); }
-    if let Some(h) = resp.headers().get("retry-after").and_then(|v| v.to_str().ok()).and_then(|s| s.parse::<u64>().ok()) {
+    if let Some(ov) = override_secs {
+        return Duration::from_secs(ov);
+    }
+    if let Some(h) = resp
+        .headers()
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+    {
         return Duration::from_secs(h);
     }
     backoff_delay(attempt)
