@@ -1,10 +1,12 @@
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
+use rand::Rng;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
 use std::process::Command;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use rand::Rng;
-use std::path::PathBuf;
 
 #[tokio::test]
 async fn photos_search_defaults_yaml_and_projection() {
@@ -149,11 +151,11 @@ async fn photos_download_reports_path_and_bytes() {
         .mount(&server)
         .await;
     // Bytes GET
-    Mock::given(method("GET")).and(path(img_path)).respond_with(
-        ResponseTemplate::new(200).set_body_raw(img_bytes.clone(), "image/jpeg"),
-    )
-    .mount(&server)
-    .await;
+    Mock::given(method("GET"))
+        .and(path(img_path))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(img_bytes.clone(), "image/jpeg"))
+        .mount(&server)
+        .await;
 
     // temp path
     let mut rng = rand::thread_rng();
@@ -176,6 +178,11 @@ async fn photos_download_reports_path_and_bytes() {
     let reported = v["data"]["path"].as_str().unwrap();
     assert!(std::path::Path::new(reported).exists());
     assert!(v["data"]["bytes"].as_u64().unwrap() > 0);
+    #[cfg(unix)]
+    {
+        let meta = std::fs::metadata(reported).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o777, 0o600);
+    }
     // cleanup
     let _ = std::fs::remove_file(PathBuf::from(reported));
 }

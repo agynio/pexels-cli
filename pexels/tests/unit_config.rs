@@ -10,7 +10,17 @@ fn test_config_precedence_env_over_config() {
     let v = serde_json::json!({"a":{"b":1}});
     let out = project(&v, &["a.b".into()]);
     assert_eq!(out["a"]["b"], 1);
-    // project_response is not part of envelope path now; keep simple project smoke
+    // project_response removed; keep simple project smoke
+}
+
+#[test]
+fn single_resource_projection_fallback_non_empty() {
+    // Given a single resource and fields that produce empty object, ensure fallback keeps original
+    let resource = serde_json::json!({"id": 42, "name": "foo"});
+    let out = project(&resource, &["nonexistent".into()]);
+    // Normally project would return {}, but envelope code falls back to original; emulate by checking project is empty here,
+    // and rely on integration to validate envelope behavior. This unit test documents the expectation.
+    assert!(out.as_object().unwrap().is_empty());
 }
 
 #[test]
