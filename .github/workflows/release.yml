@@ -3,32 +3,172 @@ name: Release
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
+    name: Build and package (${{ matrix.label }})
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          # Linux
+          - os: ubuntu-latest
+            label: linux-amd64
+            runner_os: linux
+            arch: amd64
+            target: x86_64-unknown-linux-gnu
+            use_cross: false
+          - os: ubuntu-latest
+            label: linux-arm64
+            runner_os: linux
+            arch: arm64
+            target: aarch64-unknown-linux-gnu
+            use_cross: true
+          # macOS
+          - os: macos-13
+            label: macos-amd64
+            runner_os: macos
+            arch: amd64
+            target: ''
+          - os: macos-14
+            label: macos-arm64
+            runner_os: macos
+            arch: arm64
+            target: ''
+          # Windows
+          - os: windows-latest
+            label: windows-amd64
+            runner_os: windows
+            arch: amd64
+            target: ''
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
-      - name: Build
-        run: cargo build --release -p pexels
-      - name: Package
+
+      # Install LLVM toolchain for stripping
+      - name: Install strip tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y llvm binutils
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            sudo apt-get install -y binutils-aarch64-linux-gnu || true
+          fi
+
+      # Install cross for Linux arm64 build
+      - name: Install cross (Linux)
+        if: runner.os == 'Linux' && matrix.use_cross
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euxo pipefail
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --release -p pexels --target ${{ matrix.target }}
+          else
+            cargo build --release -p pexels --target ${{ matrix.target }}
+          fi
+
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euxo pipefail
+          cargo build --release -p pexels
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build --release -p pexels
+
+      # Strip binaries
+      - name: Strip binary (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euxo pipefail
+          BIN_PATH="target/${{ matrix.target }}/release/pexels"
+          if command -v llvm-strip >/dev/null 2>&1; then
+            llvm-strip "$BIN_PATH"
+          elif [ "${{ matrix.arch }}" = "arm64" ] && command -v aarch64-linux-gnu-strip >/dev/null 2>&1; then
+            aarch64-linux-gnu-strip "$BIN_PATH"
+          else
+            strip "$BIN_PATH" || true
+          fi
+
+      - name: Strip binary (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euxo pipefail
+          BIN_PATH="target/release/pexels"
+          strip -x "$BIN_PATH"
+
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install -y llvm
+
+      - name: Strip binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $binPath = "target/release/pexels.exe"
+          $llvmStrip = "C:\\Program Files\\LLVM\\bin\\llvm-strip.exe"
+          if (Test-Path $llvmStrip) {
+            & "$llvmStrip" $binPath
+          } else {
+            Write-Host "llvm-strip not found; skipping strip on Windows"
+          }
+
+      # Package artifacts
+      - name: Package (Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
-          mkdir -p dist
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp target/release/pexels.exe dist/pexels-${{ runner.os }}.exe
+          set -euxo pipefail
+          mkdir -p dist pkg
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            BIN_PATH="target/${{ matrix.target }}/release/pexels"
           else
-            cp target/release/pexels dist/pexels-${{ runner.os }}
+            BIN_PATH="target/release/pexels"
           fi
+          cp "$BIN_PATH" pkg/pexels
+          chmod +x pkg/pexels
+          ARCHIVE_NAME="pexels-cli-${{ matrix.runner_os }}-${{ matrix.arch }}.tar.gz"
+          tar -C pkg -czf "dist/${ARCHIVE_NAME}" pexels
+          # Validate archive contents
+          CONTENTS=$(tar -tzf "dist/${ARCHIVE_NAME}")
+          if [ "$CONTENTS" != "pexels" ]; then
+            echo "Unexpected archive contents: $CONTENTS"; exit 1;
+          fi
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $binPath = "target/release/pexels.exe"
+          $archiveName = "pexels-cli-windows-amd64.zip"
+          Copy-Item $binPath -Destination "pexels.exe"
+          Compress-Archive -Path "pexels.exe" -DestinationPath (Join-Path dist $archiveName) -Force
+          Remove-Item "pexels.exe"
+          # Validate archive contains only pexels.exe
+          $tmp = New-Item -ItemType Directory -Force -Path tmp_unpack
+          Expand-Archive -Path (Join-Path dist $archiveName) -DestinationPath $tmp.FullName -Force
+          $files = Get-ChildItem $tmp.FullName -Recurse | Where-Object { -not $_.PSIsContainer }
+          if ($files.Count -ne 1 -or $files[0].Name -ne 'pexels.exe') { throw "Unexpected archive contents" }
+          Remove-Item -Recurse -Force $tmp
+
       - uses: actions/upload-artifact@v4
         with:
-          name: pexels-${{ runner.os }}
+          name: pexels-cli-${{ matrix.label }}
           path: dist/*
 
   release:
@@ -39,6 +179,7 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
+          merge-multiple: true
           path: dist
       - name: Create tag
         id: tag
@@ -52,6 +193,11 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Pexels CLI ${{ steps.tag.outputs.tag }}
-          files: dist/**
+          files: |
+            dist/pexels-cli-linux-amd64.tar.gz
+            dist/pexels-cli-linux-arm64.tar.gz
+            dist/pexels-cli-macos-amd64.tar.gz
+            dist/pexels-cli-macos-arm64.tar.gz
+            dist/pexels-cli-windows-amd64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
