@@ -14,6 +14,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -52,7 +54,12 @@ jobs:
           pexels() { ./target/release/pexels "$@"; }
 
           OUT_SEARCH=$(pexels photos search -q cat)
-          ID=$(echo "$OUT_SEARCH" | yq -r '.data[0].id')
+
+          # Ensure search output is YAML with a non-empty .data sequence
+          echo "$OUT_SEARCH" | yq -p=yaml -e '.data | type == "!!seq" and (.data | length) > 0' >/dev/null
+
+          # Extract the first photo id deterministically from YAML
+          ID=$(echo "$OUT_SEARCH" | yq -p=yaml -r '.data[0].id')
           echo "ID=$ID"
 
           TMPDIR=$(mktemp -d)
@@ -70,6 +77,12 @@ jobs:
           ABS=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$DEST")
           export ABS
           echo "ABS=$ABS"
+
+          # Optional: quick sanity check of downloaded asset type (lightweight)
+          if command -v file >/dev/null 2>&1; then
+            echo '--- file(1) on downloaded asset ---'
+            file -b "$ABS" || true
+          fi
 
           echo 'Check: has("data") and has("meta")'
           yq -p=yaml -e 'has("data") and has("meta")' download.yaml
@@ -91,7 +104,6 @@ jobs:
           [ -s "$ABS" ]
 
           if [ "${RUNNER_OS:-}" = "Linux" ]; then
-            chmod 600 "$ABS" || true
             PERM=$(stat -c '%a' "$ABS")
             echo "Linux mode=$PERM"
             [ "$PERM" = 600 ]
