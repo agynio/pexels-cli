@@ -131,24 +131,29 @@ fn select_inner(input: &Value, parts: &[&str]) -> Value {
 }
 
 fn insert_path(dst: &mut Map<String, Value>, path: &str, value: Value) {
-    let mut parts = path.split('.').peekable();
-    let mut cur: *mut Map<String, Value> = dst as *mut _;
-    while let Some(p) = parts.next() {
-        let is_last = parts.peek().is_none();
-        if is_last {
-            unsafe { (&mut *cur).insert(p.to_string(), value.clone()); }
-        } else {
-            // Use raw pointer to avoid borrow checker issues in nested inserts
-            unsafe {
-                let map = &mut *cur;
-                let entry = map.entry(p.to_string()).or_insert_with(|| Value::Object(Map::new()));
-                if !entry.is_object() {
-                    *entry = Value::Object(Map::new());
-                }
-                if let Value::Object(ref mut m) = entry {
-                    cur = m as *mut _;
-                }
+    // Safe iterative insertion without unsafe blocks
+    let parts = path.split('.').collect::<Vec<_>>();
+    if parts.is_empty() {
+        return;
+    }
+    // Work on a stack of mutable references to avoid multiple borrows
+    let mut map_ref: &mut Map<String, Value> = dst;
+    for (idx, part) in parts.iter().enumerate() {
+        let key = (*part).to_string();
+        if idx == parts.len() - 1 {
+            map_ref.insert(key, value.clone());
+            break;
+        }
+        if !map_ref.contains_key(&key) || !map_ref.get(&key).unwrap().is_object() {
+            map_ref.insert(key.clone(), Value::Object(Map::new()));
+        }
+        // Narrow the borrow by scoping
+        let next_ref = map_ref.get_mut(&key).expect("entry must exist");
+        match next_ref {
+            Value::Object(ref mut m) => {
+                map_ref = m;
             }
+            _ => unreachable!(),
         }
     }
 }

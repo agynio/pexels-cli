@@ -1,13 +1,24 @@
 use crate::api::PexelsClient;
 use crate::config::{Config, TokenSource};
 use crate::output::{emit_data, emit_error, OutputFormat};
+use crate::output::emit_raw_bytes;
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::Value as JsonValue;
 use std::time::Duration;
 
 #[derive(Parser, Debug)]
-#[command(name = "pexels", about = "Pexels CLI", disable_help_subcommand = true)]
+#[command(
+    name = "pexels",
+    about = "Pexels CLI",
+    disable_help_subcommand = true,
+    after_help = r#"Examples:
+  pexels photos search 'cats' --per-page 5
+  pexels videos popular --json --fields @urls
+  pexels collections list --all --limit 50
+  PEXELS_TOKEN=... pexels quota view
+  pexels --host http://localhost:8080 util ping"#
+)]
 #[command(arg_required_else_help = true)]
 pub struct Cli {
     /// JSON output
@@ -258,17 +269,36 @@ async fn run_config(cmd: &ConfigCmd, mut cfg: Config) -> Result<()> {
 }
 
 async fn run_quota(_cmd: &QuotaCmd, client: PexelsClient, cli: &Cli) -> Result<()> {
-    let data = client.quota_view().await?;
+    // Reachability check: HEAD curated
+    let reachable = client.util_ping().await.is_ok();
+    let mut data = client.quota_view().await.unwrap_or_else(|_| serde_json::json!({}));
+    if let Some(obj) = data.as_object_mut() {
+        obj.insert("reachable".into(), serde_json::json!(reachable));
+    }
     emit_projected(cli, data, &DefaultFields::None)
 }
 
 async fn run_photos(cmd: &PhotosCmd, client: PexelsClient, cli: &Cli) -> Result<()> {
-    let data = match &cmd.sub {
-        PhotosSub::Search { query } => client.photos_search(query, cli).await?,
-        PhotosSub::Curated => client.photos_curated(cli).await?,
-        PhotosSub::Get { id } => client.photos_get(id).await?,
-    };
-    emit_projected(cli, data, &DefaultFields::Photos)
+    match &cmd.sub {
+        PhotosSub::Search { query } => {
+            let data = client.photos_search(query, cli).await?;
+            emit_projected(cli, data, &DefaultFields::Photos)
+        }
+        PhotosSub::Curated => {
+            if cli.raw {
+                let url = client.base_photos().join("curated").map_err(|e| anyhow::anyhow!(e))?;
+                let bytes = client.req_bytes(url, client.pagination_qp(cli)).await?;
+                emit_raw_bytes(&bytes)
+            } else {
+                let data = client.photos_curated(cli).await?;
+                emit_projected(cli, data, &DefaultFields::Photos)
+            }
+        }
+        PhotosSub::Get { id } => {
+            let data = client.photos_get(id).await?;
+            emit_projected(cli, data, &DefaultFields::Photos)
+        }
+    }
 }
 
 async fn run_videos(cmd: &VideosCmd, client: PexelsClient, cli: &Cli) -> Result<()> {
@@ -333,6 +363,12 @@ fn emit_projected(cli: &Cli, data: JsonValue, defaults: &DefaultFields) -> Resul
         cli.fields.clone()
     };
 
-    let projected = crate::proj::project_response(&data, &fields);
-    emit_data(&fmt, &projected)
+    if matches!(fmt, OutputFormat::Raw) {
+        // Emit exact bytes of JSON body if available
+        let s = serde_json::to_string(&data)?;
+        emit_raw_bytes(s.as_bytes())
+    } else {
+        let projected = crate::proj::project_response(&data, &fields);
+        emit_data(&fmt, &projected)
+    }
 }

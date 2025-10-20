@@ -1,4 +1,8 @@
 use pexels::proj::{project, project_response};
+use pexels::config::Config;
+use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 #[test]
 fn test_config_precedence_env_over_config() {
@@ -9,4 +13,22 @@ fn test_config_precedence_env_over_config() {
     let resp = serde_json::json!({"photos":[{"id":1,"width":10,"height":20}]});
     let out2 = project_response(&resp, &["width".into()]);
     assert_eq!(out2["photos"][0]["width"], 10);
+}
+
+#[test]
+fn test_config_path_vendorless() {
+    let path = Config::config_path();
+    let s = path.display().to_string();
+    assert!(s.contains("pexels"));
+    assert!(s.ends_with("config.yaml"));
+}
+
+#[test]
+fn test_token_save_permissions() {
+    let mut cfg = Config::default();
+    cfg.token = Some("t".into());
+    cfg.save().unwrap();
+    let meta = fs::metadata(cfg.path()).unwrap();
+    #[cfg(unix)]
+    assert_eq!(meta.permissions().mode() & 0o777, 0o600);
 }

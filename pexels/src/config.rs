@@ -74,7 +74,8 @@ impl Config {
     }
 
     pub fn config_path() -> PathBuf {
-        let proj = ProjectDirs::from("com", "agynio", "pexels").expect("config dirs");
+        // Vendorless per spec
+        let proj = ProjectDirs::from("", "", "pexels").expect("config dirs");
         let path = proj.config_dir().join("config.yaml");
         path
     }

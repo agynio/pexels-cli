@@ -57,3 +57,18 @@ async fn pagination_all_limit_respected() {
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
     assert_eq!(v["photos"].as_array().unwrap().len(), 3);
 }
+
+#[tokio::test]
+async fn raw_output_streams_bytes() {
+    let server = MockServer::start().await;
+    let body = "RAW-BYTES";
+    Mock::given(method("GET")).and(path("/v1/curated"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/plain"))
+        .mount(&server).await;
+
+    let mut cmd = Command::cargo_bin("pexels").unwrap();
+    cmd.arg("--host").arg(server.uri())
+        .arg("--raw")
+        .arg("photos").arg("curated");
+    cmd.assert().success().stdout(predicate::eq(body));
+}

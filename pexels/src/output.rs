@@ -1,5 +1,4 @@
 use anyhow::Result;
-use serde::Serialize;
 use serde_json::Value as JsonValue;
 use std::io::{self, Write};
 
@@ -32,9 +31,22 @@ pub fn emit_data(fmt: &OutputFormat, data: &JsonValue) -> Result<()> {
 }
 
 pub fn emit_error(err: &anyhow::Error) -> Result<()> {
-    let mut map = serde_json::Map::new();
-    map.insert("error".into(), JsonValue::String(err.to_string()));
-    let s = serde_yaml::to_string(&JsonValue::Object(map))?;
+    // Try to parse the error string as YAML map; else wrap into structured map
+    let obj = if let Ok(val) = serde_yaml::from_str::<JsonValue>(&err.to_string()) {
+        val
+    } else {
+        let mut map = serde_json::Map::new();
+        map.insert("error".into(), JsonValue::String(err.to_string()));
+        JsonValue::Object(map)
+    };
+    let s = serde_yaml::to_string(&obj)?;
     let _ = writeln!(io::stderr(), "{}", s.trim_end());
+    Ok(())
+}
+
+pub fn emit_raw_bytes(bytes: &[u8]) -> Result<()> {
+    let mut out = io::stdout().lock();
+    out.write_all(bytes)?;
+    out.flush()?;
     Ok(())
 }

@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, AUTHORIZATION, USER_AGENT};
 use reqwest::{Client, Response, StatusCode, Url};
 use serde_json::Value as JsonValue;
+use tokio::io::AsyncReadExt;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
@@ -42,7 +43,7 @@ impl PexelsClient {
         Ok(Self { cfg, http })
     }
 
-    fn base_photos(&self) -> Url {
+    pub fn base_photos(&self) -> Url {
         let base = self
             .cfg
             .host
@@ -50,7 +51,7 @@ impl PexelsClient {
             .unwrap_or_else(|| "https://api.pexels.com".to_string());
         Url::parse(&(base + "/v1/")).expect("valid url")
     }
-    fn base_videos(&self) -> Url {
+    pub fn base_videos(&self) -> Url {
         let base = self
             .cfg
             .host
@@ -59,7 +60,7 @@ impl PexelsClient {
         Url::parse(&(base + "/videos/")).expect("valid url")
     }
 
-    async fn req(&self, url: Url, mut qp: Vec<(String, String)>) -> Result<JsonValue> {
+    async fn req(&self, url: Url, qp: Vec<(String, String)>) -> Result<JsonValue> {
         // retries with backoff
         let mut attempt = 0;
         loop {
@@ -95,9 +96,44 @@ impl PexelsClient {
         }
     }
 
+    pub async fn req_bytes(&self, url: Url, qp: Vec<(String, String)>) -> Result<Vec<u8>> {
+        let mut attempt = 0;
+        loop {
+            let res = self.http.get(url.clone()).query(&qp).send().await;
+            match res {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_success() {
+                        return Ok(resp.bytes().await?.to_vec());
+                    }
+                    if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
+                        if attempt < self.cfg.max_retries {
+                            attempt += 1;
+                            let delay = retry_after_delay(&resp, attempt, self.cfg.retry_after);
+                            warn!("http {} retrying in {:?}", status, delay);
+                            tokio::time::sleep(delay).await;
+                            continue;
+                        }
+                    }
+                    return Err(http_error(resp).await);
+                }
+                Err(e) => {
+                    if attempt < self.cfg.max_retries {
+                        attempt += 1;
+                        let delay = backoff_delay(attempt);
+                        warn!("http error: {} retrying in {:?}", redact(&e.to_string()), delay);
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+                    return Err(anyhow::anyhow!(e));
+                }
+            }
+        }
+    }
+
     pub async fn quota_view(&self) -> Result<JsonValue> {
         // Pexels exposes remaining via headers; for CLI, attempt a ping endpoint and echo headers
-        let url = self.base_photos().join("curated").unwrap();
+        let url = self.base_photos().join("curated").map_err(|e| anyhow::anyhow!(e))?;
         let resp = self.http.get(url).send().await?;
         if !resp.status().is_success() {
             return Err(http_error(resp).await);
@@ -118,7 +154,7 @@ impl PexelsClient {
     }
 
     pub async fn photos_search(&self, query: &str, cli: &crate::cli::Cli) -> Result<JsonValue> {
-        let url = self.base_photos().join("search").unwrap();
+        let url = self.base_photos().join("search").map_err(|e| anyhow::anyhow!(e))?;
         let mut qp = self.pagination_qp(cli);
         qp.push(("query".into(), query.into()));
         if cli.all || cli.limit.is_some() || cli.max_pages.is_some() {
@@ -129,7 +165,7 @@ impl PexelsClient {
     }
 
     pub async fn photos_curated(&self, cli: &crate::cli::Cli) -> Result<JsonValue> {
-        let url = self.base_photos().join("curated").unwrap();
+        let url = self.base_photos().join("curated").map_err(|e| anyhow::anyhow!(e))?;
         let qp = self.pagination_qp(cli);
         if cli.all || cli.limit.is_some() || cli.max_pages.is_some() {
             self.req_paginated(url, qp, cli, &[("photos", "photos")]).await
@@ -139,12 +175,15 @@ impl PexelsClient {
     }
 
     pub async fn photos_get(&self, id: &str) -> Result<JsonValue> {
-        let url = self.base_photos().join(&format!("photos/{}", id)).unwrap();
+        let url = self
+            .base_photos()
+            .join(&format!("photos/{}", id))
+            .map_err(|e| anyhow::anyhow!(e))?;
         self.req(url, vec![]).await
     }
 
     pub async fn videos_search(&self, query: &str, cli: &crate::cli::Cli) -> Result<JsonValue> {
-        let url = self.base_videos().join("search").unwrap();
+        let url = self.base_videos().join("search").map_err(|e| anyhow::anyhow!(e))?;
         let mut qp = self.pagination_qp(cli);
         qp.push(("query".into(), query.into()));
         if cli.all || cli.limit.is_some() || cli.max_pages.is_some() {
@@ -154,7 +193,7 @@ impl PexelsClient {
         }
     }
     pub async fn videos_popular(&self, cli: &crate::cli::Cli) -> Result<JsonValue> {
-        let url = self.base_videos().join("popular").unwrap();
+        let url = self.base_videos().join("popular").map_err(|e| anyhow::anyhow!(e))?;
         let qp = self.pagination_qp(cli);
         if cli.all || cli.limit.is_some() || cli.max_pages.is_some() {
             self.req_paginated(url, qp, cli, &[("videos", "videos")]).await
@@ -163,12 +202,15 @@ impl PexelsClient {
         }
     }
     pub async fn videos_get(&self, id: &str) -> Result<JsonValue> {
-        let url = self.base_videos().join(&format!("videos/{}", id)).unwrap();
+        let url = self
+            .base_videos()
+            .join(&format!("videos/{}", id))
+            .map_err(|e| anyhow::anyhow!(e))?;
         self.req(url, vec![]).await
     }
 
     pub async fn collections_list(&self, cli: &crate::cli::Cli) -> Result<JsonValue> {
-        let url = self.base_photos().join("collections").unwrap();
+        let url = self.base_photos().join("collections").map_err(|e| anyhow::anyhow!(e))?;
         let qp = self.pagination_qp(cli);
         if cli.all || cli.limit.is_some() || cli.max_pages.is_some() {
             self.req_paginated(url, qp, cli, &[("collections", "collections")]).await
@@ -177,7 +219,10 @@ impl PexelsClient {
         }
     }
     pub async fn collections_featured(&self, cli: &crate::cli::Cli) -> Result<JsonValue> {
-        let url = self.base_photos().join("collections/featured").unwrap();
+        let url = self
+            .base_photos()
+            .join("collections/featured")
+            .map_err(|e| anyhow::anyhow!(e))?;
         let qp = self.pagination_qp(cli);
         if cli.all || cli.limit.is_some() || cli.max_pages.is_some() {
             self.req_paginated(url, qp, cli, &[("collections", "collections")]).await
@@ -186,11 +231,17 @@ impl PexelsClient {
         }
     }
     pub async fn collections_get(&self, id: &str) -> Result<JsonValue> {
-        let url = self.base_photos().join(&format!("collections/{}", id)).unwrap();
+        let url = self
+            .base_photos()
+            .join(&format!("collections/{}", id))
+            .map_err(|e| anyhow::anyhow!(e))?;
         self.req(url, vec![]).await
     }
     pub async fn collections_items(&self, id: &str, cli: &crate::cli::Cli) -> Result<JsonValue> {
-        let url = self.base_photos().join(&format!("collections/{}/media", id)).unwrap();
+        let url = self
+            .base_photos()
+            .join(&format!("collections/{}/media", id))
+            .map_err(|e| anyhow::anyhow!(e))?;
         let qp = self.pagination_qp(cli);
         if cli.all || cli.limit.is_some() || cli.max_pages.is_some() {
             self.req_paginated(url, qp, cli, &[("media", "media")]).await
@@ -209,7 +260,7 @@ impl PexelsClient {
     }
     pub async fn util_ping(&self) -> Result<()> {
         // lightweight: HEAD curated
-        let url = self.base_photos().join("curated").unwrap();
+        let url = self.base_photos().join("curated").map_err(|e| anyhow::anyhow!(e))?;
         let resp = self.http.head(url).send().await?;
         if resp.status().is_success() {
             Ok(())
@@ -218,7 +269,7 @@ impl PexelsClient {
         }
     }
 
-    fn pagination_qp(&self, cli: &crate::cli::Cli) -> Vec<(String, String)> {
+    pub fn pagination_qp(&self, cli: &crate::cli::Cli) -> Vec<(String, String)> {
         let mut qp = vec![];
         if let Some(p) = cli.page {
             qp.push(("page".into(), p.to_string()));
@@ -308,6 +359,11 @@ async fn http_error(resp: Response) -> anyhow::Error {
     let mut err = serde_json::Map::new();
     err.insert("code".into(), JsonValue::Number(status.as_u16().into()));
     err.insert("reason".into(), JsonValue::String(status.canonical_reason().unwrap_or("error").to_string()));
+    // attempt to parse Pexels error body to extract type/hint
+    if let Ok(v) = serde_json::from_str::<JsonValue>(&text) {
+        if let Some(t) = v.get("type").cloned() { err.insert("type".into(), t); }
+        if let Some(h) = v.get("hint").cloned() { err.insert("hint".into(), h); }
+    }
     if let Some(id) = rid { err.insert("request_id".into(), JsonValue::String(id)); }
     if !text.is_empty() { err.insert("body".into(), JsonValue::String(text)); }
     anyhow::anyhow!(serde_yaml::to_string(&JsonValue::Object(err)).unwrap_or_else(|_| format!("http error {}", status)))
