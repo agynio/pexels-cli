@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  build-test:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,21 +16,33 @@ jobs:
           components: clippy, rustfmt
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
-      - name: Fmt
+      - name: Lint (fmt)
         run: cargo fmt --all -- --check
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Test
         run: cargo test --workspace --all-features -- --nocapture
-
-  e2e:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-      - name: Build
-        run: cargo build --release -p pexels
-      - name: Run integration tests
+      - name: Build release
+        run: cargo build --release --workspace
+      - name: E2E (mock server via tests)
         run: cargo test -p pexels --test integration_mock -- --nocapture
+      - name: Live smoke - auth status
+        if: ${{ secrets.PEXELS_TOKEN != '' && github.event_name != 'pull_request_target' }}
+        env:
+          PEXELS_TOKEN: ${{ secrets.PEXELS_TOKEN }}
+        run: ./target/release/pexels auth status --timeout 10 --max-retries 1
+      - name: Live smoke - photos curated
+        if: ${{ secrets.PEXELS_TOKEN != '' && github.event_name != 'pull_request_target' }}
+        env:
+          PEXELS_TOKEN: ${{ secrets.PEXELS_TOKEN }}
+        run: ./target/release/pexels photos curated --per-page 1 --fields photographer,alt --timeout 10 --max-retries 1
+      - name: Live smoke - videos popular
+        if: ${{ secrets.PEXELS_TOKEN != '' && github.event_name != 'pull_request_target' }}
+        env:
+          PEXELS_TOKEN: ${{ secrets.PEXELS_TOKEN }}
+        run: ./target/release/pexels videos popular --per-page 1 --fields duration --timeout 10 --max-retries 1
+      - name: Live smoke - collections featured
+        if: ${{ secrets.PEXELS_TOKEN != '' && github.event_name != 'pull_request_target' }}
+        env:
+          PEXELS_TOKEN: ${{ secrets.PEXELS_TOKEN }}
+        run: ./target/release/pexels collections featured --per-page 1 --fields title --timeout 10 --max-retries 1
