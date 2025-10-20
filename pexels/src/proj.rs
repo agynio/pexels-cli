@@ -51,7 +51,6 @@ fn ensure_non_empty_item(projected: &Value, original: &Value) -> Value {
 }
 
 fn minimal_item(original: &Value) -> Value {
-    use serde_json::json;
     match original {
         Value::Object(map) => {
             let mut o = Map::new();
@@ -216,7 +215,6 @@ fn extract_by_keys(input: &Value, keys: &[&str]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate as pexels;
     use serde_json::json;
 
     #[test]
