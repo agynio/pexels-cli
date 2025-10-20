@@ -216,8 +216,8 @@ fn extract_by_keys(input: &Value, keys: &[&str]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use crate as pexels;
+    use serde_json::json;
 
     #[test]
     fn test_project_dot() {

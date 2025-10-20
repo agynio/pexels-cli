@@ -153,10 +153,7 @@ pub enum PhotosSub {
         size: Option<PhotoSize>,
     },
     /// Download the original photo bytes to path
-    Download {
-        id: String,
-        path: String,
-    },
+    Download { id: String, path: String },
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -274,10 +271,13 @@ async fn run_auth(cmd: &AuthCmd, mut cfg: Config) -> Result<()> {
                 "status": "ok",
                 "message": "token saved"
             });
-            let out = wrap_ok(&payload, Some(serde_json::json!({
-                "next_page": null,
-                "prev_page": null
-            })));
+            let out = wrap_ok(
+                &payload,
+                Some(serde_json::json!({
+                    "next_page": null,
+                    "prev_page": null
+                })),
+            );
             emit_data(&OutputFormat::Yaml, &out)
         }
         AuthSub::Status => {
@@ -286,19 +286,25 @@ async fn run_auth(cmd: &AuthCmd, mut cfg: Config) -> Result<()> {
                 "source": src,
                 "present": present
             });
-            let out = wrap_ok(&payload, Some(serde_json::json!({
-                "next_page": null,
-                "prev_page": null
-            })));
+            let out = wrap_ok(
+                &payload,
+                Some(serde_json::json!({
+                    "next_page": null,
+                    "prev_page": null
+                })),
+            );
             emit_data(&OutputFormat::Yaml, &out)
         }
         AuthSub::TokenSource => {
             let (src, _present) = cfg.token_source_with_presence();
             let payload = serde_json::json!({"source": src});
-            let out = wrap_ok(&payload, Some(serde_json::json!({
-                "next_page": null,
-                "prev_page": null
-            })));
+            let out = wrap_ok(
+                &payload,
+                Some(serde_json::json!({
+                    "next_page": null,
+                    "prev_page": null
+                })),
+            );
             emit_data(&OutputFormat::Yaml, &out)
         }
         AuthSub::Logout => {
@@ -306,10 +312,13 @@ async fn run_auth(cmd: &AuthCmd, mut cfg: Config) -> Result<()> {
             cfg.token_source = Some(TokenSource::None);
             cfg.save()?;
             let payload = serde_json::json!({"status":"logged out"});
-            let out = wrap_ok(&payload, Some(serde_json::json!({
-                "next_page": null,
-                "prev_page": null
-            })));
+            let out = wrap_ok(
+                &payload,
+                Some(serde_json::json!({
+                    "next_page": null,
+                    "prev_page": null
+                })),
+            );
             emit_data(&OutputFormat::Yaml, &out)
         }
     }
@@ -324,10 +333,13 @@ async fn run_config(cmd: &ConfigCmd, mut cfg: Config) -> Result<()> {
             }
             cfg.save()?;
             let payload = serde_json::json!({"status":"ok"});
-            let out = wrap_ok(&payload, Some(serde_json::json!({
-                "next_page": null,
-                "prev_page": null
-            })));
+            let out = wrap_ok(
+                &payload,
+                Some(serde_json::json!({
+                    "next_page": null,
+                    "prev_page": null
+                })),
+            );
             emit_data(&OutputFormat::Yaml, &out)
         }
         ConfigSub::Get { key } => {
@@ -494,70 +506,32 @@ fn emit_enveloped(cli: &Cli, data: JsonValue, defaults: &DefaultFields) -> Resul
     };
 
     if matches!(fmt, OutputFormat::Raw) {
-        // Emit exact bytes of JSON body if available
         let s = serde_json::to_string(&data)?;
-        emit_raw_bytes(s.as_bytes())
-    } else {
-<<<<<<< HEAD
-        // Build envelope { data, meta }
-        let mut meta = serde_json::Map::new();
-        let mut data_out: JsonValue = JsonValue::Null;
-        if let Some(obj) = data.as_object() {
-            // Known item arrays
-            let item_keys = ["photos", "videos", "collections", "media"];
-            let mut selected_key: Option<&str> = None;
-            for k in item_keys.iter() {
-                if obj.get(*k).map(|v| v.is_array()).unwrap_or(false) {
-                    selected_key = Some(k);
-                    break;
-                }
-            }
-            if let Some(key) = selected_key {
-                // data = projected items array
-                if let Some(items) = obj.get(key).and_then(|v| v.as_array()) {
-                    let proj_items: Vec<JsonValue> = items
-                        .iter()
-                        .map(|it| crate::proj::project(it, &fields))
-                        .collect();
-                    data_out = JsonValue::Array(proj_items);
-                }
-                // meta = rest of fields
-                for (k, v) in obj.iter() {
-                    if k != key {
-                        meta.insert(k.clone(), v.clone());
-                    }
-                }
-            } else {
-                // single resource
-                let proj = crate::proj::project(&data, &fields);
-                // ensure not empty
-                if proj.is_object() && proj.as_object().map(|m| m.is_empty()).unwrap_or(false) {
-                    data_out = data.clone();
-                } else {
-                    data_out = proj;
-                }
-                // meta empty
-            }
-        } else {
-            // primitive -> place under data directly
-            data_out = data.clone();
-        }
-
-        let out = JsonValue::Object(
-            [
-                ("data".to_string(), data_out),
-                ("meta".to_string(), JsonValue::Object(meta)),
-            ]
-            .into_iter()
-            .collect(),
-        );
-=======
-        let projected = crate::proj::project_response(&data, &fields);
-        let (wrapped_data, meta) = crate::cli::shape_output(&projected);
-        let out = wrap_ok(&wrapped_data, Some(meta));
->>>>>>> 0e8b7e8 (feat(output): new wrapped output shape with data/meta, next_page parsing; projection fallback for empty items; remove mock tests and wiremock; update CI live tests and docs)
-        emit_data(&fmt, &out)
+        return emit_raw_bytes(s.as_bytes());
     }
+    // Apply projection to items and ensure non-empty items
+    let projected = match &data {
+        JsonValue::Object(map) => {
+            let mut out = map.clone();
+            for key in ["photos", "videos", "collections", "media"] {
+                if let Some(JsonValue::Array(items)) = out.get(key) {
+                    let new_items = items
+                        .iter()
+                        .map(|it| {
+                            let p = crate::proj::project(it, &fields);
+                            crate::proj::ensure_non_empty_item(&p, it)
+                        })
+                        .collect::<Vec<_>>();
+                    out.insert(key.to_string(), JsonValue::Array(new_items));
+                }
+            }
+            JsonValue::Object(out)
+        }
+        _ => crate::proj::project(&data, &fields),
+    };
+    let (wrapped_data, meta) = crate::cli::shape_output(&projected);
+    let out = wrap_ok(&wrapped_data, Some(meta));
+    emit_data(&fmt, &out)
 }
 
 // Convert API response into the new output shape
@@ -572,19 +546,29 @@ pub fn shape_output(input: &JsonValue) -> (JsonValue, JsonValue) {
         meta.insert("total_results".into(), json!(n));
     }
     // next/prev can be URLs; convert to ints
-    let next_page_num = input
-        .get("next_page")
-        .and_then(|v| v.as_u64().map(|u| u as u32).or_else(|| v.as_str().and_then(crate::output::parse_page_number)));
-    let prev_page_num = input
-        .get("prev_page")
-        .and_then(|v| v.as_u64().map(|u| u as u32).or_else(|| v.as_str().and_then(crate::output::parse_page_number)));
+    let next_page_num = input.get("next_page").and_then(|v| {
+        v.as_u64()
+            .map(|u| u as u32)
+            .or_else(|| v.as_str().and_then(crate::output::parse_page_number))
+    });
+    let prev_page_num = input.get("prev_page").and_then(|v| {
+        v.as_u64()
+            .map(|u| u as u32)
+            .or_else(|| v.as_str().and_then(crate::output::parse_page_number))
+    });
     meta.insert(
         "next_page".into(),
-        match next_page_num { Some(p) => json!(p), None => Value::Null },
+        match next_page_num {
+            Some(p) => json!(p),
+            None => Value::Null,
+        },
     );
     meta.insert(
         "prev_page".into(),
-        match prev_page_num { Some(p) => json!(p), None => Value::Null },
+        match prev_page_num {
+            Some(p) => json!(p),
+            None => Value::Null,
+        },
     );
 
     // Data extraction: prefer items arrays
@@ -601,9 +585,12 @@ pub fn shape_output(input: &JsonValue) -> (JsonValue, JsonValue) {
 }
 
 fn emit_wrapped(fmt: &OutputFormat, payload: &JsonValue) -> Result<()> {
-    let out = wrap_ok(payload, Some(serde_json::json!({
-        "next_page": null,
-        "prev_page": null,
-    })));
+    let out = wrap_ok(
+        payload,
+        Some(serde_json::json!({
+            "next_page": null,
+            "prev_page": null,
+        })),
+    );
     emit_data(fmt, &out)
 }

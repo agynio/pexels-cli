@@ -6,4 +6,3 @@ fn test_parse_page_number() {
     assert_eq!(parse_page_number("/v1/search?page=10"), Some(10));
     assert_eq!(parse_page_number("/v1/search?foo=bar"), None);
 }
-
