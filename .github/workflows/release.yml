@@ -148,6 +148,10 @@ jobs:
           if [ "$CONTENTS" != "pexels" ]; then
             echo "Unexpected archive contents: $CONTENTS"; exit 1;
           fi
+          # Validate executable bit is set inside tar
+          if ! tar -tvzf "dist/${ARCHIVE_NAME}" | awk '{print $1, $6}' | grep -E '^-..x[^ ]* pexels$' >/dev/null; then
+            echo "Binary in archive is not executable"; exit 1;
+          fi
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
