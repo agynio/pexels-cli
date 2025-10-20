@@ -159,13 +159,8 @@ jobs:
           else
             BIN_PATH="target/release/pexels"
           fi
-          # Resolve absolute path via Python realpath fallback
-          BIN_PATH_ABS=$(BIN_PATH="$BIN_PATH" python3 - <<'PY'
-import os
-p = os.environ.get('BIN_PATH', '')
-print(os.path.realpath(os.path.abspath(os.path.expanduser(p))) if p else '')
-PY
-          )
+          # Resolve absolute path via Python realpath fallback (avoid here-doc for YAML compatibility)
+          BIN_PATH_ABS=$(BIN_PATH="$BIN_PATH" python3 -c 'import os; p=os.environ.get("BIN_PATH","" ); print(os.path.realpath(os.path.abspath(os.path.expanduser(p))) if p else "")')
           echo "Resolved BIN_PATH: ${BIN_PATH_ABS:-$BIN_PATH}"
           ls -l "$BIN_PATH" || true
           if [ ! -f "$BIN_PATH" ]; then
