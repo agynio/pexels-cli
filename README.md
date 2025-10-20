@@ -10,23 +10,28 @@ Auth
 - Config file: `~/.config/pexels/config.yaml` (or OS equivalent). Use `pexels auth login --token ...`.
 
 Usage examples
-- `pexels photos search 'cats' --per-page 5`
-- `pexels photos url <id>` -> outputs `{ data: string, meta }` where data is src.<size> (default `original`). Use `--size` with one of: `original|large2x|large|medium|small|portrait|landscape|tiny`.
-- `pexels photos download <id> <path>` -> downloads to path and outputs `{ data: { path, bytes }, meta }`
-- `pexels videos popular --json --fields @urls`
-- `pexels collections list --all --limit 50`
-- `PEXELS_TOKEN=... pexels quota view`
-- `pexels --host http://localhost:8080 util ping`
+- `pexels auth status`
+- `pexels photos search -q cats`
+- `pexels photos curated`
+- `pexels videos popular`
+- `pexels collections featured`
 
 Output
-- Default YAML with stable order; `--json` for JSON; `--raw` for raw HTTP body.
+- Successful outputs are wrapped as `{ data: <payload>, meta: { total_results?, next_page?, prev_page?, request_id? } }`.
+- For list endpoints, `data` is the items array (photos/videos/collections/media). For single-resource endpoints, `data` is the object.
+- `page`/`per_page` are omitted. `next_page`/`prev_page` are integers (page numbers) or null.
 - Field selection via `--fields` supports dot paths and sets: `@ids,@urls,@files,@thumbnails,@all`.
-- All structured outputs are wrapped as `{ data, meta }`. For list endpoints, `data` is the projected items array and `meta` carries paging info. For single resources, `data` falls back to non-empty projection.
+- Some fields are omitted by default for lighter responses; include heavy fields via `--fields`.
 
 Testing
-- Tests use a mock server via `--host` override.
-- Live tests run only when `PEXELS_TOKEN` is present (for pushes to `main` and PRs within the upstream repo). They are skipped on forks and when no token is available.
+- Unit tests cover projection, config precedence, error mapping, and page parsing.
+- Live tests run in CI when `PEXELS_TOKEN` is present and event is safe. Commands:
+  - `pexels auth status`
+  - `pexels photos search -q cats`
+  - `pexels photos curated`
+  - `pexels videos popular`
+  - `pexels collections featured`
 
 CI/Release
-- CI runs fmt, clippy, tests, and integration (mock) tests.
+- CI runs: lint -> unit tests -> build -> live tests (guarded by `secrets.PEXELS_TOKEN` and internal PRs/main).
 - On push to main, a release tag is created and binaries for Linux/macOS/Windows are uploaded.

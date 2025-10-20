@@ -41,6 +41,48 @@ pub fn project(input: &Value, fields: &[String]) -> Value {
 
 // project_response removed; envelope now constructed in CLI.
 
+// Ensure projected item is not an empty object; if empty, fallback to minimal descriptive fields
+fn ensure_non_empty_item(projected: &Value, original: &Value) -> Value {
+    if matches!(projected, Value::Object(map) if map.is_empty()) {
+        minimal_item(original)
+    } else {
+        projected.clone()
+    }
+}
+
+fn minimal_item(original: &Value) -> Value {
+    use serde_json::json;
+    match original {
+        Value::Object(map) => {
+            let mut o = Map::new();
+            for k in [
+                "id",
+                "url",
+                "photographer",
+                "alt",
+                "title",
+                "description",
+                "duration",
+            ] {
+                if let Some(v) = map.get(k) {
+                    o.insert(k.to_string(), v.clone());
+                }
+            }
+            if o.is_empty() {
+                // Fallback: include first scalar field if any
+                for (k, v) in map.iter() {
+                    if matches!(v, Value::String(_) | Value::Number(_) | Value::Bool(_)) {
+                        o.insert(k.clone(), v.clone());
+                        break;
+                    }
+                }
+            }
+            Value::Object(o)
+        }
+        _ => original.clone(),
+    }
+}
+
 fn merge(dst: &mut Value, src: &Value) {
     match (dst.clone(), src) {
         (_, Value::Null) => {}
@@ -175,6 +217,7 @@ fn extract_by_keys(input: &Value, keys: &[&str]) -> Value {
 mod tests {
     use super::*;
     use serde_json::json;
+    use crate as pexels;
 
     #[test]
     fn test_project_dot() {
