@@ -77,8 +77,11 @@ jobs:
           echo 'Check: .data.path is string'
           yq -p=yaml -e '.data.path | type == "!!str"' download.yaml
 
-          echo 'Check: .data.bytes is int and > 0'
-          yq -p=yaml -e '.data.bytes | type == "!!int" and . > 0' download.yaml
+          echo 'Check: .data.bytes is int'
+          yq -p=yaml -e '.data.bytes | type == "!!int"' download.yaml
+
+          echo 'Check: .data.bytes > 0'
+          yq -p=yaml -e '.data.bytes > 0' download.yaml
 
           echo 'Check: .data.path equals absolute path'
           yq -p=yaml -e '.data.path == env(ABS)' download.yaml
