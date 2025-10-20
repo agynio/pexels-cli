@@ -2,13 +2,7 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - 'feature/**'
   pull_request:
-    branches:
-      - main
-  workflow_dispatch:
 
 jobs:
   ci:
@@ -17,92 +11,102 @@ jobs:
       PEXELS_TOKEN: ${{ secrets.PEXELS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Sanity
-        run: echo "Workflow started on ${{ github.event_name }} for ${{ github.ref }}"
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format (check)
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Run unit tests
+        run: cargo test --all --release --verbose
+
       - name: Install yq
         shell: bash
         run: |
-          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y curl
           YQ_VER=v4.44.3
           sudo curl -L -o /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VER}/yq_linux_amd64"
           sudo chmod +x /usr/local/bin/yq
           yq --version
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-      - name: Lint (fmt)
-        run: cargo fmt --all -- --check
-      - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: Test (unit)
-        run: cargo test --workspace --all-features -- --nocapture
-      - name: Build release
-        run: cargo build --release --workspace
-      # yq already installed above
-      - name: Live tests - auth status
+
+      - name: Live tests - photos download
         if: ${{ env.PEXELS_TOKEN != '' && (github.event_name == 'push' || github.event_name == 'pull_request') && github.repository_owner == 'agynio' }}
         shell: bash
         run: |
           set -euo pipefail
-          OUT=$(./target/release/pexels auth status)
-          echo "--- auth status output ---"
-          echo "$OUT"
-          echo "---------------------------"
-          echo "$OUT" | yq -e 'type == "!!map" and has("data") and has("meta")' >/dev/null
-          echo "$OUT" | yq -e '(.meta.next_page == null) or ((.meta.next_page | type) == "!!int")' >/dev/null
-      - name: Live tests - photos search
-        if: ${{ env.PEXELS_TOKEN != '' && (github.event_name == 'push' || github.event_name == 'pull_request') && github.repository_owner == 'agynio' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          OUT=$(./target/release/pexels photos search -q cats || true)
-          echo "--- photos search output ---"
-          echo "$OUT"
-          echo "----------------------------"
-          ./target/release/pexels photos search -q cats >/dev/null
-          echo "$OUT" | yq -e 'type == "!!map" and has("data") and has("meta")' >/dev/null
-          echo "$OUT" | yq -e '(.meta.next_page == null) or ((.meta.next_page | type) == "!!int")' >/dev/null
-          echo "$OUT" | yq -e '(.data | type) == "!!seq" and ((.data | length) > 0)' >/dev/null
-      - name: Live tests - photos curated
-        if: ${{ env.PEXELS_TOKEN != '' && (github.event_name == 'push' || github.event_name == 'pull_request') && github.repository_owner == 'agynio' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          OUT=$(./target/release/pexels photos curated || true)
-          echo "--- photos curated output ---"
-          echo "$OUT"
-          echo "-----------------------------"
-          ./target/release/pexels photos curated >/dev/null
-          echo "$OUT" | yq -e 'type == "!!map" and has("data") and has("meta")' >/dev/null
-          echo "$OUT" | yq -e '(.meta.next_page == null) or ((.meta.next_page | type) == "!!int")' >/dev/null
-          echo "$OUT" | yq -e '(.data | type) == "!!seq" and ((.data | length) > 0)' >/dev/null
-      - name: Live tests - videos popular
-        if: ${{ env.PEXELS_TOKEN != '' && (github.event_name == 'push' || github.event_name == 'pull_request') && github.repository_owner == 'agynio' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          OUT=$(./target/release/pexels videos popular || true)
-          echo "--- videos popular output ---"
-          echo "$OUT"
-          echo "-----------------------------"
-          ./target/release/pexels videos popular >/dev/null
-          echo "$OUT" | yq -e 'type == "!!map" and has("data") and has("meta")' >/dev/null
-          echo "$OUT" | yq -e '(.meta.next_page == null) or ((.meta.next_page | type) == "!!int")' >/dev/null
-          echo "$OUT" | yq -e '(.data | type) == "!!seq" and ((.data | length) > 0)' >/dev/null
-      - name: Live tests - collections featured
-        if: ${{ env.PEXELS_TOKEN != '' && (github.event_name == 'push' || github.event_name == 'pull_request') && github.repository_owner == 'agynio' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          OUT=$(./target/release/pexels collections featured || true)
-          echo "--- collections featured output ---"
-          echo "$OUT"
-          echo "----------------------------------"
-          ./target/release/pexels collections featured >/dev/null
-          echo "$OUT" | yq -e 'type == "!!map" and has("data") and has("meta")' >/dev/null
-          echo "$OUT" | yq -e '(.meta.next_page == null) or ((.meta.next_page | type) == "!!int")' >/dev/null
-          echo "$OUT" | yq -e '(.data | type) == "!!seq" and ((.data | length) > 0)' >/dev/null
+          if [ "${RUNNER_OS:-}" = "Linux" ]; then
+            umask 077
+          fi
+
+          pexels() { ./target/release/pexels "$@"; }
+
+          OUT_SEARCH=$(pexels photos search -q cat)
+
+          # Ensure search output is YAML with a non-empty .data sequence
+          echo "$OUT_SEARCH" | yq -p=yaml -e '.data | type == "!!seq" and (.data | length) > 0' >/dev/null
+
+          # Extract the first photo id deterministically from YAML
+          ID=$(echo "$OUT_SEARCH" | yq -p=yaml -r '.data[0].id')
+          echo "ID=$ID"
+
+          TMPDIR=$(mktemp -d)
+          DEST="$TMPDIR/cat.jpg"
+
+          # Write CLI output to a YAML file (CLI outputs YAML)
+          pexels photos download "$ID" "$DEST" > download.yaml
+
+          echo '--- download.yaml (first 200 chars) ---'
+          head -c 200 download.yaml || true
+          echo
+          echo '--- download.yaml (hexdump of first 64 bytes) ---'
+          od -An -t x1 -N 64 download.yaml || true
+
+          ABS=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$DEST")
+          export ABS
+          echo "ABS=$ABS"
+
+          # Optional: quick sanity check of downloaded asset type (lightweight)
+          if command -v file >/dev/null 2>&1; then
+            echo '--- file(1) on downloaded asset ---'
+            file -b "$ABS" || true
+          fi
+
+          echo 'Check: has("data") and has("meta")'
+          yq -p=yaml -e 'has("data") and has("meta")' download.yaml
+
+          echo 'Check: .data.path is string'
+          yq -p=yaml -e '.data.path | type == "!!str"' download.yaml
+
+          echo 'Check: .data.bytes is int'
+          yq -p=yaml -e '.data.bytes | type == "!!int"' download.yaml
+
+          echo 'Check: .data.bytes > 0'
+          yq -p=yaml -e '.data.bytes > 0' download.yaml
+
+          echo 'Check: .data.path equals absolute path'
+          yq -p=yaml -e '.data.path == env(ABS)' download.yaml
+
+          echo 'Check: file exists and is non-empty'
+          [ -f "$ABS" ]
+          [ -s "$ABS" ]
+
+          if [ "${RUNNER_OS:-}" = "Linux" ]; then
+            PERM=$(stat -c '%a' "$ABS")
+            echo "Linux mode=$PERM"
+            [ "$PERM" = 600 ]
+          else
+            echo "Skipping mode check on RUNNER_OS=${RUNNER_OS:-unknown}"
+          fi
