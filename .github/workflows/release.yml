@@ -69,9 +69,20 @@ jobs:
       - name: Build (Linux)
         if: runner.os == 'Linux'
         run: |
-          set -euxo pipefail
-          if [ "${{ matrix.use_cross }}" = "true" ]; then
-            cross build --release -p pexels --target ${{ matrix.target }}
+          set -euo pipefail
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            echo "Attempting cross build for arm64..."
+            if cross build --release -p pexels --target ${{ matrix.target }}; then
+              echo "cross build succeeded"
+            else
+              echo "cross build failed; falling back to native toolchain"
+              rustup target add aarch64-unknown-linux-gnu
+              sudo apt-get update
+              sudo apt-get install -y gcc-aarch64-linux-gnu
+              export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
+              export AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar
+              cargo build --release -p pexels --target aarch64-unknown-linux-gnu
+            fi
           else
             cargo build --release -p pexels --target ${{ matrix.target }}
           fi
@@ -92,14 +103,23 @@ jobs:
       - name: Strip binary (Linux)
         if: runner.os == 'Linux'
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           BIN_PATH="target/${{ matrix.target }}/release/pexels"
-          if command -v llvm-strip >/dev/null 2>&1; then
-            llvm-strip "$BIN_PATH"
-          elif [ "${{ matrix.arch }}" = "arm64" ] && command -v aarch64-linux-gnu-strip >/dev/null 2>&1; then
-            aarch64-linux-gnu-strip "$BIN_PATH"
+          if [ ! -f "$BIN_PATH" ]; then
+            echo "Error: binary not found at $BIN_PATH"; ls -la "$(dirname "$BIN_PATH")"; exit 1
+          fi
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            if command -v aarch64-linux-gnu-strip >/dev/null 2>&1; then
+              aarch64-linux-gnu-strip "$BIN_PATH"
+            else
+              echo "Warning: aarch64-linux-gnu-strip not found; skipping strip for arm64"
+            fi
           else
-            strip "$BIN_PATH" || true
+            if command -v llvm-strip >/dev/null 2>&1; then
+              llvm-strip "$BIN_PATH"
+            else
+              strip "$BIN_PATH" || true
+            fi
           fi
 
       - name: Strip binary (macOS)
@@ -132,14 +152,28 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           mkdir -p dist pkg
           if [ "${{ runner.os }}" = "Linux" ]; then
             BIN_PATH="target/${{ matrix.target }}/release/pexels"
           else
             BIN_PATH="target/release/pexels"
           fi
-          cp "$BIN_PATH" pkg/pexels
+          # Resolve absolute path via Python realpath fallback
+          BIN_PATH_ABS=$(BIN_PATH="$BIN_PATH" python3 - <<'PY'
+import os
+p = os.environ.get('BIN_PATH', '')
+print(os.path.realpath(os.path.abspath(os.path.expanduser(p))) if p else '')
+PY
+          )
+          echo "Resolved BIN_PATH: ${BIN_PATH_ABS:-$BIN_PATH}"
+          ls -l "$BIN_PATH" || true
+          if [ ! -f "$BIN_PATH" ]; then
+            echo "Error: binary not found at $BIN_PATH"; exit 1;
+          fi
+          BIN_SRC=${BIN_PATH_ABS:-$BIN_PATH}
+          cp "$BIN_SRC" pkg/pexels
+          ls -l pkg || true
           chmod +x pkg/pexels
           ARCHIVE_NAME="pexels-cli-${{ matrix.runner_os }}-${{ matrix.arch }}.tar.gz"
           tar -C pkg -czf "dist/${ARCHIVE_NAME}" pexels
@@ -149,7 +183,7 @@ jobs:
             echo "Unexpected archive contents: $CONTENTS"; exit 1;
           fi
           # Validate executable bit is set inside tar
-          if ! tar -tvzf "dist/${ARCHIVE_NAME}" | awk '{print $1, $6}' | grep -E '^-..x[^ ]* pexels$' >/dev/null; then
+          if ! tar -tvzf "dist/${ARCHIVE_NAME}" | awk '{print $1, $NF}' | grep -E '^-..x[^ ]* pexels$' >/dev/null; then
             echo "Binary in archive is not executable"; exit 1;
           fi
 
