@@ -40,6 +40,7 @@ pub fn project(input: &Value, fields: &[String]) -> Value {
 }
 
 // Apply projection to known item arrays while preserving top-level metadata
+#[allow(dead_code)]
 pub fn project_response(input: &Value, fields: &[String]) -> Value {
     if fields.is_empty() {
         return input.clone();

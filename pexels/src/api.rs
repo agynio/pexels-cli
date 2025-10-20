@@ -47,6 +47,12 @@ impl PexelsClient {
         Ok(Self { cfg, http })
     }
 
+    // Download arbitrary URL without query params.
+    pub async fn download_url_bytes(&self, url: &str) -> Result<Vec<u8>> {
+        let parsed = Url::parse(url).map_err(|e| anyhow::anyhow!(e))?;
+        self.req_bytes(parsed, vec![]).await
+    }
+
     pub fn base_photos(&self) -> Url {
         let base = self
             .cfg
