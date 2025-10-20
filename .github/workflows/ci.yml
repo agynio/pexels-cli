@@ -44,26 +44,29 @@ jobs:
         if: ${{ env.PEXELS_TOKEN != '' && (github.event_name == 'push' || github.event_name == 'pull_request') && github.repository_owner == 'agynio' }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
           if [ "${RUNNER_OS:-}" = "Linux" ]; then
             umask 077
           fi
 
-          # helper to run built binary as "pexels"
           pexels() { ./target/release/pexels "$@"; }
 
-          # search to get an ID
           OUT_SEARCH=$(pexels photos search -q cat)
           ID=$(echo "$OUT_SEARCH" | yq -r '.data[0].id')
           echo "ID=$ID"
 
-          # run download and capture JSON
           TMPDIR=$(mktemp -d)
           DEST="$TMPDIR/cat.jpg"
-          OUT_DL=$(pexels photos download "$ID" "$DEST")
-          echo "$OUT_DL" > download.json
 
-          # compute absolute path for comparison
+          # Direct JSON redirection to file to avoid echo subshell issues
+          pexels photos download "$ID" "$DEST" > download.json
+
+          echo '--- download.json (first 200 chars) ---'
+          head -c 200 download.json || true
+          echo
+          echo '--- download.json (hexdump of first 64 bytes) ---'
+          od -An -t x1 -N 64 download.json || true
+
           ABS=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$DEST")
           export ABS
           echo "ABS=$ABS"
@@ -84,7 +87,6 @@ jobs:
           [ -f "$ABS" ]
           [ -s "$ABS" ]
 
-          # Ensure deterministic permissions on Linux; skip on non-Linux
           if [ "${RUNNER_OS:-}" = "Linux" ]; then
             chmod 600 "$ABS" || true
             PERM=$(stat -c '%a' "$ABS")
