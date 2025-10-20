@@ -64,10 +64,16 @@ jobs:
           echo "--- photos search output ---"
           echo "$OUT"
           echo "----------------------------"
+<<<<<<< HEAD
           ./target/release/pexels photos search -q cats >/dev/null
           echo "$OUT" | yq -e 'type == "!!map" and has("data") and has("meta")' >/dev/null
           echo "$OUT" | yq -e '(.meta.next_page == null) or ((.meta.next_page | type) == "!!int")' >/dev/null
           echo "$OUT" | yq -e '(.data | type) == "!!seq" and ((.data | length) > 0)' >/dev/null
+=======
+          # fail if command failed
+          ./target/release/pexels photos search -q cats >/dev/null
+          echo "$OUT" | yq -o=json '.' | jq -e 'has("data") and has("meta") and ((.meta.next_page|type)=="number" or .meta.next_page==null) and (.data|type=="array" and (.data|length>0))'
+>>>>>>> 2cb12c5 (refactor(output): compute meta before projection; project items individually; always wrap list endpoints into {data,meta})
       - name: Live tests - photos curated
         if: ${{ env.PEXELS_TOKEN != '' && (github.event_name == 'push' || github.event_name == 'pull_request') && github.repository_owner == 'agynio' }}
         shell: bash
@@ -78,9 +84,13 @@ jobs:
           echo "$OUT"
           echo "-----------------------------"
           ./target/release/pexels photos curated >/dev/null
+<<<<<<< HEAD
           echo "$OUT" | yq -e 'type == "!!map" and has("data") and has("meta")' >/dev/null
           echo "$OUT" | yq -e '(.meta.next_page == null) or ((.meta.next_page | type) == "!!int")' >/dev/null
           echo "$OUT" | yq -e '(.data | type) == "!!seq" and ((.data | length) > 0)' >/dev/null
+=======
+          echo "$OUT" | yq -o=json '.' | jq -e 'has("data") and has("meta") and ((.meta.next_page|type)=="number" or .meta.next_page==null) and (.data|type=="array" and (.data|length>0))'
+>>>>>>> 2cb12c5 (refactor(output): compute meta before projection; project items individually; always wrap list endpoints into {data,meta})
       - name: Live tests - videos popular
         if: ${{ env.PEXELS_TOKEN != '' && (github.event_name == 'push' || github.event_name == 'pull_request') && github.repository_owner == 'agynio' }}
         shell: bash
@@ -91,9 +101,13 @@ jobs:
           echo "$OUT"
           echo "-----------------------------"
           ./target/release/pexels videos popular >/dev/null
+<<<<<<< HEAD
           echo "$OUT" | yq -e 'type == "!!map" and has("data") and has("meta")' >/dev/null
           echo "$OUT" | yq -e '(.meta.next_page == null) or ((.meta.next_page | type) == "!!int")' >/dev/null
           echo "$OUT" | yq -e '(.data | type) == "!!seq" and ((.data | length) > 0)' >/dev/null
+=======
+          echo "$OUT" | yq -o=json '.' | jq -e 'has("data") and has("meta") and ((.meta.next_page|type)=="number" or .meta.next_page==null) and (.data|type=="array" and (.data|length>0))'
+>>>>>>> 2cb12c5 (refactor(output): compute meta before projection; project items individually; always wrap list endpoints into {data,meta})
       - name: Live tests - collections featured
         if: ${{ env.PEXELS_TOKEN != '' && (github.event_name == 'push' || github.event_name == 'pull_request') && github.repository_owner == 'agynio' }}
         shell: bash
@@ -104,6 +118,10 @@ jobs:
           echo "$OUT"
           echo "----------------------------------"
           ./target/release/pexels collections featured >/dev/null
+<<<<<<< HEAD
           echo "$OUT" | yq -e 'type == "!!map" and has("data") and has("meta")' >/dev/null
           echo "$OUT" | yq -e '(.meta.next_page == null) or ((.meta.next_page | type) == "!!int")' >/dev/null
           echo "$OUT" | yq -e '(.data | type) == "!!seq" and ((.data | length) > 0)' >/dev/null
+=======
+          echo "$OUT" | yq -o=json '.' | jq -e 'has("data") and has("meta") and ((.meta.next_page|type)=="number" or .meta.next_page==null) and (.data|type=="array" and (.data|length>0))'
+>>>>>>> 2cb12c5 (refactor(output): compute meta before projection; project items individually; always wrap list endpoints into {data,meta})

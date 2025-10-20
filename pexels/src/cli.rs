@@ -140,7 +140,10 @@ pub struct PhotosCmd {
 }
 #[derive(Subcommand, Debug)]
 pub enum PhotosSub {
-    Search { #[arg(short = 'q', long = "query")] query: String },
+    Search {
+        #[arg(short = 'q', long = "query")]
+        query: String,
+    },
     Curated,
     Get {
         id: String,
@@ -153,7 +156,10 @@ pub enum PhotosSub {
         size: Option<PhotoSize>,
     },
     /// Download the original photo bytes to path
-    Download { id: String, path: String },
+    Download {
+        id: String,
+        path: String,
+    },
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -509,28 +515,20 @@ fn emit_enveloped(cli: &Cli, data: JsonValue, defaults: &DefaultFields) -> Resul
         let s = serde_json::to_string(&data)?;
         return emit_raw_bytes(s.as_bytes());
     }
-    // Apply projection to items and ensure non-empty items
-    let projected = match &data {
-        JsonValue::Object(map) => {
-            let mut out = map.clone();
-            for key in ["photos", "videos", "collections", "media"] {
-                if let Some(JsonValue::Array(items)) = out.get(key) {
-                    let new_items = items
-                        .iter()
-                        .map(|it| {
-                            let p = crate::proj::project(it, &fields);
-                            crate::proj::ensure_non_empty_item(&p, it)
-                        })
-                        .collect::<Vec<_>>();
-                    out.insert(key.to_string(), JsonValue::Array(new_items));
-                }
-            }
-            JsonValue::Object(out)
+
+    // New pipeline: compute meta from full response, extract items, then project items and wrap.
+    use serde_json::Value as V;
+    let (data_val, meta) = shape_output(&data);
+    let out = match (&data, &data_val) {
+        (V::Object(_obj), V::Array(items)) => {
+            let projected_items = crate::proj::project_items_with_fallback(items, &fields);
+            wrap_ok(&V::Array(projected_items), Some(meta))
         }
-        _ => crate::proj::project(&data, &fields),
+        _ => {
+            let projected = crate::proj::project(&data, &fields);
+            wrap_ok(&projected, Some(meta))
+        }
     };
-    let (wrapped_data, meta) = crate::cli::shape_output(&projected);
-    let out = wrap_ok(&wrapped_data, Some(meta));
     emit_data(&fmt, &out)
 }
 
@@ -570,12 +568,10 @@ pub fn shape_output(input: &JsonValue) -> (JsonValue, JsonValue) {
             None => Value::Null,
         },
     );
-
     // Data extraction: prefer items arrays
     if let Some(obj) = input.as_object() {
         for key in ["photos", "videos", "collections", "media"] {
             if let Some(Value::Array(items)) = obj.get(key) {
-                // Remove empty objects if any slipped in (should be handled in projection)
                 let data = Value::Array(items.clone());
                 return (data, Value::Object(meta));
             }

@@ -82,6 +82,19 @@ fn minimal_item(original: &Value) -> Value {
     }
 }
 
+// Public helpers for projecting items with fallback
+pub fn project_item_with_fallback(item: &Value, fields: &[String]) -> Value {
+    let p = project(item, fields);
+    ensure_non_empty_item(&p, item)
+}
+
+pub fn project_items_with_fallback(items: &[Value], fields: &[String]) -> Vec<Value> {
+    items
+        .iter()
+        .map(|it| project_item_with_fallback(it, fields))
+        .collect()
+}
+
 fn merge(dst: &mut Value, src: &Value) {
     match (dst.clone(), src) {
         (_, Value::Null) => {}

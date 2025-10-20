@@ -28,4 +28,7 @@ fn test_shape_output_wraps_list_and_meta() {
     assert!(out["meta"].get("page").is_none());
     assert!(out["meta"].get("per_page").is_none());
     assert!(out["meta"]["next_page"].is_u64() || out["meta"]["next_page"].is_null());
+    // Ensure page/per_page not present anywhere but original
+    assert!(out.get("page").is_none());
+    assert!(out.get("per_page").is_none());
 }
