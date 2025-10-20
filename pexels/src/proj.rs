@@ -39,25 +39,7 @@ pub fn project(input: &Value, fields: &[String]) -> Value {
     out
 }
 
-// Apply projection to known item arrays while preserving top-level metadata
-pub fn project_response(input: &Value, fields: &[String]) -> Value {
-    if fields.is_empty() {
-        return input.clone();
-    }
-    match input {
-        Value::Object(map) => {
-            let mut out = map.clone();
-            for key in ["photos", "videos", "collections", "media"] {
-                if let Some(Value::Array(items)) = out.get(key) {
-                    let new_items = items.iter().map(|it| project(it, fields)).collect();
-                    out.insert(key.to_string(), Value::Array(new_items));
-                }
-            }
-            Value::Object(out)
-        }
-        _ => project(input, fields),
-    }
-}
+// project_response removed; envelope now constructed in CLI.
 
 fn merge(dst: &mut Value, src: &Value) {
     match (dst.clone(), src) {
@@ -127,35 +109,6 @@ fn select_inner(input: &Value, parts: &[&str]) -> Value {
             }
         }
         _ => Value::Null,
-    }
-}
-
-#[allow(dead_code)]
-fn insert_path(dst: &mut Map<String, Value>, path: &str, value: Value) {
-    // Safe iterative insertion without unsafe blocks
-    let parts = path.split('.').collect::<Vec<_>>();
-    if parts.is_empty() {
-        return;
-    }
-    // Work on a stack of mutable references to avoid multiple borrows
-    let mut map_ref: &mut Map<String, Value> = dst;
-    for (idx, part) in parts.iter().enumerate() {
-        let key = (*part).to_string();
-        if idx == parts.len() - 1 {
-            map_ref.insert(key, value.clone());
-            break;
-        }
-        if !map_ref.contains_key(&key) || !map_ref.get(&key).unwrap().is_object() {
-            map_ref.insert(key.clone(), Value::Object(Map::new()));
-        }
-        // Narrow the borrow by scoping
-        let next_ref = map_ref.get_mut(&key).expect("entry must exist");
-        match next_ref {
-            Value::Object(ref mut m) => {
-                map_ref = m;
-            }
-            _ => unreachable!(),
-        }
     }
 }
 
@@ -238,12 +191,15 @@ mod tests {
     }
 
     #[test]
-    fn test_project_response_array_items() {
-        let v =
-            json!({"page":1, "photos":[{"id":1,"width":100,"height":200,"src":{"original":"u"}}]});
-        let out = project_response(&v, &["width".into(), "height".into()]);
-        assert_eq!(out["photos"][0]["width"], 100);
-        assert!(out["photos"][0].get("src").is_none());
-        assert_eq!(out["page"], 1);
+    fn test_project_array_items_direct() {
+        let items = json!([{"id":1,"width":100,"height":200,"src":{"original":"u"}}]);
+        let proj: Vec<Value> = items
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|it| project(it, &["width".into(), "height".into()]))
+            .collect();
+        assert_eq!(proj[0]["width"], 100);
+        assert!(proj[0].get("src").is_none());
     }
 }

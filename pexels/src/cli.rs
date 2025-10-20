@@ -14,6 +14,8 @@ use serde_json::Value as JsonValue;
     disable_help_subcommand = true,
     after_help = r#"Examples:
   pexels photos search 'cats' --per-page 5
+  pexels photos url 12345
+  pexels photos download 12345 out.jpg
   pexels videos popular --json --fields @urls
   pexels collections list --all --limit 50
   PEXELS_TOKEN=... pexels quota view
@@ -140,9 +142,60 @@ pub struct PhotosCmd {
 }
 #[derive(Subcommand, Debug)]
 pub enum PhotosSub {
-    Search { query: String },
+    Search {
+        query: String,
+    },
     Curated,
-    Get { id: String },
+    Get {
+        id: String,
+    },
+    /// Return canonical photo URL (src.original)
+    Url {
+        id: String,
+        /// Size variant from src.* (default: original)
+        #[arg(long, value_enum)]
+        size: Option<PhotoSize>,
+    },
+    /// Download the original photo bytes to path
+    Download {
+        id: String,
+        path: String,
+    },
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum PhotoSize {
+    #[value(name = "original")]
+    Original,
+    #[value(name = "large2x")]
+    Large2x,
+    #[value(name = "large")]
+    Large,
+    #[value(name = "medium")]
+    Medium,
+    #[value(name = "small")]
+    Small,
+    #[value(name = "portrait")]
+    Portrait,
+    #[value(name = "landscape")]
+    Landscape,
+    #[value(name = "tiny")]
+    Tiny,
+}
+
+impl PhotoSize {
+    fn key(&self) -> &'static str {
+        match self {
+            PhotoSize::Original => "original",
+            PhotoSize::Large2x => "large2x",
+            PhotoSize::Large => "large",
+            PhotoSize::Medium => "medium",
+            PhotoSize::Small => "small",
+            PhotoSize::Portrait => "portrait",
+            PhotoSize::Landscape => "landscape",
+            PhotoSize::Tiny => "tiny",
+        }
+    }
 }
 
 #[derive(Args, Debug)]
@@ -289,14 +342,14 @@ async fn run_quota(_cmd: &QuotaCmd, client: PexelsClient, cli: &Cli) -> Result<(
     if let Some(obj) = data.as_object_mut() {
         obj.insert("reachable".into(), serde_json::json!(reachable));
     }
-    emit_projected(cli, data, &DefaultFields::None)
+    emit_enveloped(cli, data, &DefaultFields::None)
 }
 
 async fn run_photos(cmd: &PhotosCmd, client: PexelsClient, cli: &Cli) -> Result<()> {
     match &cmd.sub {
         PhotosSub::Search { query } => {
             let data = client.photos_search(query, cli).await?;
-            emit_projected(cli, data, &DefaultFields::Photos)
+            emit_enveloped(cli, data, &DefaultFields::Photos)
         }
         PhotosSub::Curated => {
             if cli.raw {
@@ -308,12 +361,61 @@ async fn run_photos(cmd: &PhotosCmd, client: PexelsClient, cli: &Cli) -> Result<
                 emit_raw_bytes(&bytes)
             } else {
                 let data = client.photos_curated(cli).await?;
-                emit_projected(cli, data, &DefaultFields::Photos)
+                emit_enveloped(cli, data, &DefaultFields::Photos)
             }
         }
         PhotosSub::Get { id } => {
             let data = client.photos_get(id).await?;
-            emit_projected(cli, data, &DefaultFields::Photos)
+            emit_enveloped(cli, data, &DefaultFields::Photos)
+        }
+        PhotosSub::Url { id, size } => {
+            let data = client.photos_get(id).await?;
+            let size = size.unwrap_or(PhotoSize::Original);
+            let url = data
+                .get("src")
+                .and_then(|v| v.get(size.key()))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!(format!("src.{} not found", size.key())))?;
+            let fmt = fmt_from_cli(cli);
+            let out = serde_json::json!({
+                "data": url,
+                "meta": { "id": id, "size": size.key() }
+            });
+            emit_data(&fmt, &out)
+        }
+        PhotosSub::Download { id, path } => {
+            let data = client.photos_get(id).await?;
+            let url = data
+                .get("src")
+                .and_then(|v| v.get("original"))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("src.original not found"))?;
+            // download bytes
+            let bytes = client.download_url_bytes(url).await?;
+            // write file
+            use std::fs::{self, File};
+            use std::io::Write as _;
+            use std::path::Path;
+            let p = Path::new(path);
+            if let Some(dir) = p.parent() {
+                fs::create_dir_all(dir)?;
+            }
+            let mut f = File::create(p)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = f.metadata()?.permissions();
+                perms.set_mode(0o600);
+                f.set_permissions(perms)?;
+            }
+            f.write_all(&bytes)?;
+            let abs = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+            let fmt = fmt_from_cli(cli);
+            let out = serde_json::json!({
+                "data": { "path": abs.display().to_string(), "bytes": bytes.len() },
+                "meta": { "id": id, "url": url }
+            });
+            emit_data(&fmt, &out)
         }
     }
 }
@@ -324,7 +426,7 @@ async fn run_videos(cmd: &VideosCmd, client: PexelsClient, cli: &Cli) -> Result<
         VideosSub::Popular => client.videos_popular(cli).await?,
         VideosSub::Get { id } => client.videos_get(id).await?,
     };
-    emit_projected(cli, data, &DefaultFields::Videos)
+    emit_enveloped(cli, data, &DefaultFields::Videos)
 }
 
 async fn run_collections(cmd: &CollectionsCmd, client: PexelsClient, cli: &Cli) -> Result<()> {
@@ -334,7 +436,7 @@ async fn run_collections(cmd: &CollectionsCmd, client: PexelsClient, cli: &Cli) 
         CollectionsSub::Get { id } => client.collections_get(id).await?,
         CollectionsSub::Items { id } => client.collections_items(id, cli).await?,
     };
-    emit_projected(cli, data, &DefaultFields::Collections)
+    emit_enveloped(cli, data, &DefaultFields::Collections)
 }
 
 async fn run_util(cmd: &UtilCmd, client: PexelsClient, cli: &Cli) -> Result<()> {
@@ -357,12 +459,13 @@ enum DefaultFields {
     Collections,
 }
 
-fn emit_projected(cli: &Cli, data: JsonValue, defaults: &DefaultFields) -> Result<()> {
+fn emit_enveloped(cli: &Cli, data: JsonValue, defaults: &DefaultFields) -> Result<()> {
     let fmt = fmt_from_cli(cli);
     let fields = if cli.fields.is_empty() {
         match defaults {
             DefaultFields::None => vec![],
             DefaultFields::Photos => vec![
+                "id".into(),
                 "photographer".into(),
                 "alt".into(),
                 "width".into(),
@@ -383,7 +486,58 @@ fn emit_projected(cli: &Cli, data: JsonValue, defaults: &DefaultFields) -> Resul
         let s = serde_json::to_string(&data)?;
         emit_raw_bytes(s.as_bytes())
     } else {
-        let projected = crate::proj::project_response(&data, &fields);
-        emit_data(&fmt, &projected)
+        // Build envelope { data, meta }
+        let mut meta = serde_json::Map::new();
+        let mut data_out: JsonValue = JsonValue::Null;
+        if let Some(obj) = data.as_object() {
+            // Known item arrays
+            let item_keys = ["photos", "videos", "collections", "media"];
+            let mut selected_key: Option<&str> = None;
+            for k in item_keys.iter() {
+                if obj.get(*k).map(|v| v.is_array()).unwrap_or(false) {
+                    selected_key = Some(k);
+                    break;
+                }
+            }
+            if let Some(key) = selected_key {
+                // data = projected items array
+                if let Some(items) = obj.get(key).and_then(|v| v.as_array()) {
+                    let proj_items: Vec<JsonValue> = items
+                        .iter()
+                        .map(|it| crate::proj::project(it, &fields))
+                        .collect();
+                    data_out = JsonValue::Array(proj_items);
+                }
+                // meta = rest of fields
+                for (k, v) in obj.iter() {
+                    if k != key {
+                        meta.insert(k.clone(), v.clone());
+                    }
+                }
+            } else {
+                // single resource
+                let proj = crate::proj::project(&data, &fields);
+                // ensure not empty
+                if proj.is_object() && proj.as_object().map(|m| m.is_empty()).unwrap_or(false) {
+                    data_out = data.clone();
+                } else {
+                    data_out = proj;
+                }
+                // meta empty
+            }
+        } else {
+            // primitive -> place under data directly
+            data_out = data.clone();
+        }
+
+        let out = JsonValue::Object(
+            [
+                ("data".to_string(), data_out),
+                ("meta".to_string(), JsonValue::Object(meta)),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        emit_data(&fmt, &out)
     }
 }

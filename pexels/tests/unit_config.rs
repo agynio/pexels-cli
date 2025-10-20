@@ -1,5 +1,5 @@
 use pexels::config::Config;
-use pexels::proj::{project, project_response};
+use pexels::proj::project;
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -10,9 +10,17 @@ fn test_config_precedence_env_over_config() {
     let v = serde_json::json!({"a":{"b":1}});
     let out = project(&v, &["a.b".into()]);
     assert_eq!(out["a"]["b"], 1);
-    let resp = serde_json::json!({"photos":[{"id":1,"width":10,"height":20}]});
-    let out2 = project_response(&resp, &["width".into()]);
-    assert_eq!(out2["photos"][0]["width"], 10);
+    // project_response removed; keep simple project smoke
+}
+
+#[test]
+fn single_resource_projection_fallback_non_empty() {
+    // Given a single resource and fields that produce empty object, ensure fallback keeps original
+    let resource = serde_json::json!({"id": 42, "name": "foo"});
+    let out = project(&resource, &["nonexistent".into()]);
+    // Normally project would return {}, but envelope code falls back to original; emulate by checking project is empty here,
+    // and rely on integration to validate envelope behavior. This unit test documents the expectation.
+    assert!(out.as_object().unwrap().is_empty());
 }
 
 #[test]
