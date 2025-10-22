@@ -47,6 +47,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # diagnostics on failure
+          trap 'echo "--- diagnostics ---"; echo "TMPDIR=${TMPDIR:-} ABS=${ABS:-}"; [ -n "${TMPDIR:-}" ] && ls -l "$TMPDIR" || true; [ -n "${ABS:-}" ] && { echo "stat:"; stat "$ABS" || true; } ; echo "-------------------"' ERR
+
           if [ "${RUNNER_OS:-}" = "Linux" ]; then
             umask 077
           fi
