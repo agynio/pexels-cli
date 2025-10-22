@@ -31,3 +31,9 @@ serde_json = { workspace = true }
 
 [features]
 default = []
+# Expose no-op features to match release workflow flags
+# These names align with reqwest features used via workspace dependencies.
+# They do not toggle behavior here but allow `cargo --features` invocations to succeed.
+json = []
+rustls-tls = []
+stream = []
