@@ -64,38 +64,19 @@ jobs:
       - name: Install cross (Linux)
         if: runner.os == 'Linux' && matrix.use_cross
         run: |
-          cargo install cross --git https://github.com/cross-rs/cross
+          set -euxo pipefail
+          cargo install cross --version 0.2.5
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
           if [ "${{ matrix.arch }}" = "arm64" ]; then
-            echo "Attempting cross build for arm64..."
-            if cross build --release -p pexels --target ${{ matrix.target }}; then
-              echo "cross build succeeded"
-            else
-              echo "cross build failed; falling back to native toolchain"
-              rustup target add aarch64-unknown-linux-gnu
-              sudo apt-get update
-              sudo apt-get install -y gcc-aarch64-linux-gnu
-              # Prepare arm64 OpenSSL and pkg-config for native cargo build
-              sudo dpkg --add-architecture arm64 && sudo apt-get update
-              sudo apt-get install -y pkg-config-aarch64-linux-gnu libssl-dev:arm64 zlib1g-dev:arm64
-              export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
-              export AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar
-              export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
-              export PKG_CONFIG=aarch64-linux-gnu-pkg-config
-              export PKG_CONFIG_SYSROOT_DIR=/
-              export OPENSSL_DIR=/usr
-              export OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu
-              export OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu
-              cargo build --release -p pexels --target aarch64-unknown-linux-gnu
-            fi
+            echo "Building with cross for arm64..."
+            cross build --release -p pexels --target ${{ matrix.target }}
           else
             cargo build --release -p pexels --target ${{ matrix.target }}
           fi
-
       - name: Build (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -216,6 +197,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
