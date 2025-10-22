@@ -46,6 +46,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
@@ -73,21 +75,21 @@ jobs:
           set -euo pipefail
           if [ "${{ matrix.arch }}" = "arm64" ]; then
             echo "Building with cross for arm64..."
-            cross build --release -p pexels --target ${{ matrix.target }}
+            cross build --release -p pexels --target ${{ matrix.target }} --no-default-features --features "json,rustls-tls,stream"
           else
-            cargo build --release -p pexels --target ${{ matrix.target }}
+            cargo build --release -p pexels --target ${{ matrix.target }} --no-default-features --features "json,rustls-tls,stream"
           fi
       - name: Build (macOS)
         if: runner.os == 'macOS'
         run: |
           set -euxo pipefail
-          cargo build --release -p pexels
+          cargo build --release -p pexels --no-default-features --features "json,rustls-tls,stream"
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          cargo build --release -p pexels
+          cargo build --release -p pexels --no-default-features --features "json,rustls-tls,stream"
 
       # Strip binaries
       - name: Strip binary (Linux)
