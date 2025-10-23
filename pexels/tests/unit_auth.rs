@@ -5,10 +5,12 @@ use serde_json::json;
 
 #[test]
 fn auth_status_details_no_meta_and_schema() {
-    let mut cfg = Config::default();
-    // simulate config-sourced token present
-    cfg.token = Some("t".into());
-    cfg.token_source = Some(TokenSource::Config);
+    // simulate config-sourced token present via struct literal to satisfy clippy
+    let cfg = Config {
+        token: Some("t".into()),
+        token_source: Some(TokenSource::Config),
+        ..Default::default()
+    };
 
     // Build payload like handler and ensure no meta when wrapped with None
     let payload = serde_json::json!({
