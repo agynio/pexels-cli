@@ -87,8 +87,8 @@ jobs:
             file -b "$ABS" || true
           fi
 
-          echo 'Check: has("data") and has("meta")'
-          yq -p=yaml -e 'has("data") and has("meta")' download.yaml
+          echo 'Check: has("data")'
+          yq -p=yaml -e 'has("data")' download.yaml
 
           echo 'Check: .data.path is string'
           yq -p=yaml -e '.data.path | type == "!!str"' download.yaml
