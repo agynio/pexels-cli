@@ -27,7 +27,6 @@ pub struct Config {
 pub enum TokenSource {
     Env,
     Config,
-    Cli,
     #[default]
     None,
 }
@@ -110,7 +109,6 @@ impl Config {
         let src = match self.token_source.clone().unwrap_or(TokenSource::None) {
             TokenSource::Env => "env",
             TokenSource::Config => "config",
-            TokenSource::Cli => "cli",
             TokenSource::None => "none",
         };
         (src.to_string(), present)

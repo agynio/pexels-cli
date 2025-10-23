@@ -264,21 +264,15 @@ fn fmt_from_cli(cli: &Cli) -> OutputFormat {
 async fn run_auth(cmd: &AuthCmd, mut cfg: Config) -> Result<()> {
     match &cmd.sub {
         AuthSub::Login { token } => {
-            // Positional TOKEN only; env fallback PEXELS_TOKEN -> PEXELS_API_KEY
-            let token = token
+            // Decide env-vs-positional based on presence of positional arg (pre-resolution)
+            let env_var = if token.is_none() { Config::env_token_var() } else { None };
+            // Resolve token: positional -> PEXELS_TOKEN -> PEXELS_API_KEY
+            let token_val = token
                 .clone()
                 .or_else(|| std::env::var("PEXELS_TOKEN").ok())
                 .or_else(|| std::env::var("PEXELS_API_KEY").ok())
                 .context("token not provided; pass TOKEN or set env PEXELS_TOKEN\npexels auth login [TOKEN]")?;
-            // Determine if coming from env or positional
-            let env_var = if token.as_str() == std::env::var("PEXELS_TOKEN").ok().as_deref().unwrap_or("") {
-                Some("PEXELS_TOKEN")
-            } else if token.as_str() == std::env::var("PEXELS_API_KEY").ok().as_deref().unwrap_or("") {
-                Some("PEXELS_API_KEY")
-            } else {
-                None
-            };
-            cfg.token = Some(token);
+            cfg.token = Some(token_val);
             cfg.token_source = Some(TokenSource::Config);
             cfg.save()?;
             let payload = if let Some(var) = env_var {
@@ -573,7 +567,6 @@ pub fn build_auth_status(cfg: &Config) -> JsonValue {
         "config" => {
             serde_json::json!({ "path": cfg.path().canonicalize().unwrap_or_else(|_| cfg.path()).display().to_string(), "profile": null })
         }
-        "cli" => serde_json::json!({}),
         _ => serde_json::json!({ "reason": "no token found" }),
     };
     serde_json::json!({
