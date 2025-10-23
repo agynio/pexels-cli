@@ -2,7 +2,8 @@ name: Release
 
 on:
   push:
-    branches: [ main ]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -204,6 +205,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
       - name: Download artifacts
@@ -211,23 +213,39 @@ jobs:
         with:
           merge-multiple: true
           path: dist
-      - name: Create tag
-        id: tag
+      - name: Verify tag matches Cargo version
         shell: bash
         run: |
-          shortsha=$(git rev-parse --short HEAD)
-          date=$(date +%Y%m%d%H%M%S)
-          echo "tag=release-${shortsha}-${date}" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          TAG_NAME="${GITHUB_REF_NAME}"
+          echo "Git ref name: $TAG_NAME"
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(.+)?$ ]]; then
+            echo "Warning: tag $TAG_NAME does not look like semver starting with v" >&2
+          fi
+          VERSION=$(grep -m1 '^version\s*=\s*"' pexels/Cargo\.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "Cargo version: $VERSION"
+          if [ "${TAG_NAME#v}" != "$VERSION" ]; then
+            echo "Error: tag $TAG_NAME does not match Cargo.toml version $VERSION" >&2
+            exit 1
+          fi
+      - name: Compute SHA256 checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum * > SHA256SUMS.txt
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: Pexels CLI ${{ steps.tag.outputs.tag }}
+          tag_name: ${{ github.ref_name }}
+          name: Pexels CLI ${{ github.ref_name }}
+          generate_release_notes: true
           files: |
             dist/pexels-cli-linux-amd64.tar.gz
             dist/pexels-cli-linux-arm64.tar.gz
             dist/pexels-cli-macos-amd64.tar.gz
             dist/pexels-cli-macos-arm64.tar.gz
             dist/pexels-cli-windows-amd64.zip
+            dist/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
