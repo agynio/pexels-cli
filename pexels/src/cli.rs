@@ -105,9 +105,11 @@ pub struct AuthCmd {
 }
 #[derive(Subcommand, Debug)]
 pub enum AuthSub {
-    Login { token: Option<String> },
+    Login {
+        #[arg(value_name = "TOKEN")]
+        token: Option<String>,
+    },
     Status,
-    TokenSource,
     Logout,
 }
 
@@ -265,52 +267,38 @@ fn fmt_from_cli(cli: &Cli) -> OutputFormat {
 async fn run_auth(cmd: &AuthCmd, mut cfg: Config) -> Result<()> {
     match &cmd.sub {
         AuthSub::Login { token } => {
-            let token = token
+            // Decide env-vs-positional based on presence of positional arg (pre-resolution)
+            let env_var = if token.is_none() {
+                Config::env_token_var()
+            } else {
+                None
+            };
+            // Resolve token: positional -> PEXELS_TOKEN -> PEXELS_API_KEY
+            let token_val = token
                 .clone()
                 .or_else(|| std::env::var("PEXELS_TOKEN").ok())
                 .or_else(|| std::env::var("PEXELS_API_KEY").ok())
-                .context("token not provided; use --token or env PEXELS_TOKEN")?;
-            cfg.token = Some(token);
+                .context("token not provided; pass TOKEN or set env PEXELS_TOKEN\npexels auth login [TOKEN]")?;
+            cfg.token = Some(token_val);
             cfg.token_source = Some(TokenSource::Config);
             cfg.save()?;
-            let payload = serde_json::json!({
-                "status": "ok",
-                "message": "token saved"
-            });
-            let out = wrap_ok(
-                &payload,
-                Some(serde_json::json!({
-                    "next_page": null,
-                    "prev_page": null
-                })),
-            );
+            let payload = if let Some(var) = env_var {
+                serde_json::json!({
+                    "status": "ok",
+                    "message": format!("token saved from env {}", var),
+                })
+            } else {
+                serde_json::json!({
+                    "status": "ok",
+                    "message": "token saved",
+                })
+            };
+            let out = wrap_ok(&payload, None);
             emit_data(&OutputFormat::Yaml, &out)
         }
         AuthSub::Status => {
-            let (src, present) = cfg.token_source_with_presence();
-            let payload = serde_json::json!({
-                "source": src,
-                "present": present
-            });
-            let out = wrap_ok(
-                &payload,
-                Some(serde_json::json!({
-                    "next_page": null,
-                    "prev_page": null
-                })),
-            );
-            emit_data(&OutputFormat::Yaml, &out)
-        }
-        AuthSub::TokenSource => {
-            let (src, _present) = cfg.token_source_with_presence();
-            let payload = serde_json::json!({"source": src});
-            let out = wrap_ok(
-                &payload,
-                Some(serde_json::json!({
-                    "next_page": null,
-                    "prev_page": null
-                })),
-            );
+            let payload = build_auth_status(&cfg);
+            let out = wrap_ok(&payload, None);
             emit_data(&OutputFormat::Yaml, &out)
         }
         AuthSub::Logout => {
@@ -318,13 +306,7 @@ async fn run_auth(cmd: &AuthCmd, mut cfg: Config) -> Result<()> {
             cfg.token_source = Some(TokenSource::None);
             cfg.save()?;
             let payload = serde_json::json!({"status":"logged out"});
-            let out = wrap_ok(
-                &payload,
-                Some(serde_json::json!({
-                    "next_page": null,
-                    "prev_page": null
-                })),
-            );
+            let out = wrap_ok(&payload, None);
             emit_data(&OutputFormat::Yaml, &out)
         }
     }
@@ -339,13 +321,7 @@ async fn run_config(cmd: &ConfigCmd, mut cfg: Config) -> Result<()> {
             }
             cfg.save()?;
             let payload = serde_json::json!({"status":"ok"});
-            let out = wrap_ok(
-                &payload,
-                Some(serde_json::json!({
-                    "next_page": null,
-                    "prev_page": null
-                })),
-            );
+            let out = wrap_ok(&payload, None);
             emit_data(&OutputFormat::Yaml, &out)
         }
         ConfigSub::Get { key } => {
@@ -407,10 +383,7 @@ async fn run_photos(cmd: &PhotosCmd, client: PexelsClient, cli: &Cli) -> Result<
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!(format!("src.{} not found", size.key())))?;
             let fmt = fmt_from_cli(cli);
-            let out = serde_json::json!({
-                "data": url,
-                "meta": { "id": id, "size": size.key() }
-            });
+            let out = serde_json::json!({ "data": url });
             emit_data(&fmt, &out)
         }
         PhotosSub::Download { id, path } => {
@@ -442,8 +415,7 @@ async fn run_photos(cmd: &PhotosCmd, client: PexelsClient, cli: &Cli) -> Result<
             let abs = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
             let fmt = fmt_from_cli(cli);
             let out = serde_json::json!({
-                "data": { "path": abs.display().to_string(), "bytes": bytes.len() },
-                "meta": { "id": id, "url": url }
+                "data": { "path": abs.display().to_string(), "bytes": bytes.len() }
             });
             emit_data(&fmt, &out)
         }
@@ -531,7 +503,8 @@ fn emit_enveloped(cli: &Cli, data: JsonValue, defaults: &DefaultFields) -> Resul
             } else {
                 crate::proj::project(&data, &fields)
             };
-            wrap_ok(&projected, Some(meta))
+            // Omit meta for single-resource outputs
+            wrap_ok(&projected, None)
         }
     };
     emit_data(&fmt, &out)
@@ -586,12 +559,26 @@ pub fn shape_output(input: &JsonValue) -> (JsonValue, JsonValue) {
 }
 
 fn emit_wrapped(fmt: &OutputFormat, payload: &JsonValue) -> Result<()> {
-    let out = wrap_ok(
-        payload,
-        Some(serde_json::json!({
-            "next_page": null,
-            "prev_page": null,
-        })),
-    );
+    let out = wrap_ok(payload, None);
     emit_data(fmt, &out)
+}
+
+// Build auth status payload (expanded details)
+pub fn build_auth_status(cfg: &Config) -> JsonValue {
+    let (src, present) = cfg.token_source_with_presence();
+    let details = match src.as_str() {
+        "env" => {
+            let var = Config::env_token_var();
+            serde_json::json!({ "var": var, "set": var.is_some() })
+        }
+        "config" => {
+            serde_json::json!({ "path": cfg.path().canonicalize().unwrap_or_else(|_| cfg.path()).display().to_string(), "profile": null })
+        }
+        _ => serde_json::json!({ "reason": "no token found" }),
+    };
+    serde_json::json!({
+        "present": present,
+        "source": src,
+        "details": details,
+    })
 }

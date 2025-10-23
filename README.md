@@ -6,8 +6,8 @@ Install
 - Build from source: `cargo install --path pexels`
 
 Auth
-- Env: `PEXELS_TOKEN` (or `PEXELS_API_KEY`)
-- Config file: `~/.config/pexels/config.yaml` (or OS equivalent). Use `pexels auth login --token ...`.
+- Env: `PEXELS_TOKEN` (or `PEXELS_API_KEY`); fallback order: `PEXELS_TOKEN` → `PEXELS_API_KEY`.
+- Config file: `~/.config/pexels/config.yaml` (or OS equivalent). Use `pexels auth login [TOKEN]`.
 
 Usage examples
 - `pexels auth status`
@@ -17,8 +17,8 @@ Usage examples
 - `pexels collections featured`
 
 Output
-- Successful outputs are wrapped as `{ data: <payload>, meta: { total_results?, next_page?, prev_page?, request_id? } }`.
-- For list endpoints, `data` is the items array (photos/videos/collections/media). For single-resource endpoints, `data` is the object.
+- Successful outputs are wrapped as `{ data: <payload> }` for single-resource outputs, and `{ data: <items[]>, meta: { total_results?, next_page?, prev_page?, request_id? } }` for list endpoints.
+- For list endpoints, `data` is the items array (photos/videos/collections/media). For single-resource endpoints, `data` is the object and `meta` is omitted.
 - `page`/`per_page` are omitted. `next_page`/`prev_page` are integers (page numbers) or null.
 - Field selection via `--fields` supports dot paths and sets: `@ids,@urls,@files,@thumbnails,@all`.
 - Some fields are omitted by default for lighter responses; include heavy fields via `--fields`.

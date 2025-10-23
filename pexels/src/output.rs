@@ -51,20 +51,21 @@ pub fn emit_raw_bytes(bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-// Wrap successful payload into the standard envelope
-// { data: <payload>, meta: { ... } }
+// Wrap successful payload into the standard envelope.
+// When meta is provided (list endpoints), include it; otherwise omit meta.
 pub fn wrap_ok(data: &JsonValue, meta: Option<JsonValue>) -> JsonValue {
-    let mut meta_obj = match meta {
-        Some(JsonValue::Object(m)) => JsonValue::Object(m),
-        Some(v) => v,
-        None => JsonValue::Object(serde_json::Map::new()),
-    };
     let mut root = serde_json::Map::new();
     root.insert("data".into(), data.clone());
-    if !meta_obj.is_object() {
-        meta_obj = JsonValue::Object(serde_json::Map::new());
+    if let Some(m) = meta {
+        // Assign directly; normalize to object below
+        let meta_obj = m;
+        let meta_obj = if meta_obj.is_object() {
+            meta_obj
+        } else {
+            JsonValue::Object(serde_json::Map::new())
+        };
+        root.insert("meta".into(), meta_obj);
     }
-    root.insert("meta".into(), meta_obj);
     JsonValue::Object(root)
 }
 
