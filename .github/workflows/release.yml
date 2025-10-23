@@ -233,7 +233,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum * > SHA256SUMS.txt
+          sha256sum * > SHA256SUMS
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -246,6 +246,6 @@ jobs:
             dist/pexels-cli-macos-amd64.tar.gz
             dist/pexels-cli-macos-arm64.tar.gz
             dist/pexels-cli-windows-amd64.zip
-            dist/SHA256SUMS.txt
+            dist/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
