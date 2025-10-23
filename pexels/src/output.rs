@@ -57,10 +57,8 @@ pub fn wrap_ok(data: &JsonValue, meta: Option<JsonValue>) -> JsonValue {
     let mut root = serde_json::Map::new();
     root.insert("data".into(), data.clone());
     if let Some(m) = meta {
-        let meta_obj = match m {
-            JsonValue::Object(obj) => JsonValue::Object(obj),
-            v => v,
-        };
+        // Assign directly; normalize to object below
+        let meta_obj = m;
         let meta_obj = if meta_obj.is_object() {
             meta_obj
         } else {

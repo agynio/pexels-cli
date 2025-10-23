@@ -1,6 +1,6 @@
+use pexels::cli::build_auth_status;
 use pexels::config::{Config, TokenSource};
 use pexels::output::wrap_ok;
-use pexels::cli::build_auth_status;
 use serde_json::json;
 
 #[test]
@@ -27,7 +27,10 @@ fn login_success_payloads() {
     let out = wrap_ok(&json!({"status":"ok","message":"token saved"}), None);
     assert!(out.get("meta").is_none());
     // env path example
-    let out2 = wrap_ok(&json!({"status":"ok","message":"token saved from env PEXELS_TOKEN"}), None);
+    let out2 = wrap_ok(
+        &json!({"status":"ok","message":"token saved from env PEXELS_TOKEN"}),
+        None,
+    );
     assert!(out2.get("meta").is_none());
 }
 

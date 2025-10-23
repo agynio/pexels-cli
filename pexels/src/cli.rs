@@ -105,7 +105,10 @@ pub struct AuthCmd {
 }
 #[derive(Subcommand, Debug)]
 pub enum AuthSub {
-    Login { #[arg(value_name = "TOKEN")] token: Option<String> },
+    Login {
+        #[arg(value_name = "TOKEN")]
+        token: Option<String>,
+    },
     Status,
     Logout,
 }
@@ -265,7 +268,11 @@ async fn run_auth(cmd: &AuthCmd, mut cfg: Config) -> Result<()> {
     match &cmd.sub {
         AuthSub::Login { token } => {
             // Decide env-vs-positional based on presence of positional arg (pre-resolution)
-            let env_var = if token.is_none() { Config::env_token_var() } else { None };
+            let env_var = if token.is_none() {
+                Config::env_token_var()
+            } else {
+                None
+            };
             // Resolve token: positional -> PEXELS_TOKEN -> PEXELS_API_KEY
             let token_val = token
                 .clone()
