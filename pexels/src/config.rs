@@ -115,4 +115,20 @@ impl Config {
         };
         (src.to_string(), present)
     }
+
+    // Identify which environment variable provided the token, if any.
+    // Fallback order: PEXELS_TOKEN -> PEXELS_API_KEY
+    pub fn env_token_var() -> Option<&'static str> {
+        if let Ok(v) = std::env::var("PEXELS_TOKEN") {
+            if !v.is_empty() {
+                return Some("PEXELS_TOKEN");
+            }
+        }
+        if let Ok(v) = std::env::var("PEXELS_API_KEY") {
+            if !v.is_empty() {
+                return Some("PEXELS_API_KEY");
+            }
+        }
+        None
+    }
 }
