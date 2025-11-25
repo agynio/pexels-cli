@@ -11,6 +11,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v27
       - run: nix flake check --all-systems
+      - name: Build aarch64-linux package (fixed-output)
+        run: nix build .#packages.aarch64-linux.default --out-link result-aarch64
+      - run: rm -f result-aarch64
 
   build:
     strategy:
