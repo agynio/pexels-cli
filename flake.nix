@@ -21,19 +21,19 @@
       assets = {
         "x86_64-linux" = {
           url = "https://github.com/agynio/pexels-cli/releases/download/v0.1.1/pexels-cli-linux-amd64.tar.gz";
-          hash = "sha256-XXeJ3+hFM20jCAT0N+nsf4ZaSt+/TXI8ak1P+DK2xwA=";
+          hash = "sha256-L1RDY8EYBqaeAV69QHP9CbzrgL7gjku6iefPrhML/p4=";
         };
         "aarch64-linux" = {
           url = "https://github.com/agynio/pexels-cli/releases/download/v0.1.1/pexels-cli-linux-arm64.tar.gz";
-          hash = "sha256-vYnYKhYEFTTvlcdHcTOBZ5sUxfwThJVVd71V2GqiG3o=";
+          hash = "sha256-i2WS3l35hFsHo/RU5l3xNxMNebaamvzsqwovODeBow0=";
         };
         "x86_64-darwin" = {
           url = "https://github.com/agynio/pexels-cli/releases/download/v0.1.1/pexels-cli-macos-amd64.tar.gz";
-          hash = "sha256-gvWaFz/bclIxcNNzOCTcrI89Pq3BUTyq47Lfr4aUxCw=";
+          hash = "sha256-t2VgHEDz7lSI7RLqHi8nwzGzDDbbnPuxAkHBCLakIA8=";
         };
         "aarch64-darwin" = {
           url = "https://github.com/agynio/pexels-cli/releases/download/v0.1.1/pexels-cli-macos-arm64.tar.gz";
-          hash = "sha256-T08ffQjgZEElyPG51aaIT/byNTy1nn6lDScyTISpou4=";
+          hash = "sha256-6KJmpvcU0DVnCKwve4g9OlAgMwtVwfQ1T/w8quvbGpg=";
         };
       };
     in {
@@ -47,7 +47,7 @@
             inherit version;
 
             src = pkgs.fetchzip {
-              inherit (asset) url hash; # stripRoot = false (default)
+              inherit (asset) url hash;
             };
 
             installPhase = ''
