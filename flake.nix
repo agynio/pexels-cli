@@ -46,19 +46,12 @@
             pname = "pexels-cli";
             inherit version;
 
-            src = pkgs.fetchurl {
-              inherit (asset) url hash;
+            src = pkgs.fetchzip {
+              inherit (asset) url hash; # stripRoot = false (default)
             };
 
-            dontUnpack = true;
-            dontConfigure = true;
-            dontBuild = true;
-
             installPhase = ''
-              runHook preInstall
-              tar -xzf "$src"
               install -Dm755 pexels "$out/bin/pexels"
-              runHook postInstall
             '';
 
             meta = with pkgs.lib; {
